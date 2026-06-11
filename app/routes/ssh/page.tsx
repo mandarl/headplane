@@ -42,9 +42,6 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
   }
 
   const { principal, api } = await context.apiForRequest(request);
-  if (principal.kind === "api_key") {
-    throw data(sshErrors.oidc_required, 403);
-  }
 
   const hostname = params.id;
   const username = new URL(request.url).searchParams.get("user") || undefined;
@@ -65,7 +62,9 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
 
   // The user must exist within Headscale to generate a pre-auth key
   const users = await api.users.list();
-  const hsUser = findHeadscaleUserBySubject(users, principal.user.subject, principal.profile.email);
+  const hsUser = principal.kind === "api_key"
+    ? users[0]
+    : findHeadscaleUserBySubject(users, principal.user.subject, principal.profile.email);
 
   if (!hsUser) {
     throw data(sshErrors.user_not_linked, 404);
