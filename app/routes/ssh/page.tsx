@@ -17,8 +17,11 @@ import { loadHeadplaneWASM } from "./wasm.client";
 const WASM_MODULE_URL = `${__PREFIX__}/hp_ssh.wasm`;
 const WASM_HELPER_URL = `${__PREFIX__}/wasm_exec.js`;
 
-export const shouldRevalidate: ShouldRevalidateFunction = () => {
-  return false;
+export const shouldRevalidate: ShouldRevalidateFunction = ({ currentUrl, nextUrl }) => {
+  // Only revalidate when transitioning from no-user to user (UserPrompt → SSHConsole).
+  // Returning false for everything else prevents the loader from re-running
+  // mid-session, which would generate a new pre-auth key and reset the connection.
+  return !currentUrl.searchParams.has("user") && nextUrl.searchParams.has("user");
 };
 
 export async function loader({ request, params, context }: Route.LoaderArgs) {

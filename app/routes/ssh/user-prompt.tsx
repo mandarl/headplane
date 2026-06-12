@@ -1,4 +1,5 @@
-import { Form } from "react-router";
+import { useEffect } from "react";
+import { useNavigate } from "react-router";
 
 import Button from "~/components/button";
 import Card from "~/components/card";
@@ -11,6 +12,32 @@ interface UserPromptProps {
 }
 
 export default function UserPrompt({ hostname }: UserPromptProps) {
+  const navigate = useNavigate();
+
+  // Start downloading and instantiating the WASM while the user types their
+  // username. The result is stored in a module-level variable in wasm.client.ts
+  // so loadHeadplaneWASM() returns immediately when SSHConsole mounts.
+  useEffect(() => {
+    import("./wasm.client").then(({ loadHeadplaneWASM }) => {
+      loadHeadplaneWASM().catch(() => {
+        // Ignore errors here — SSHConsole will surface them properly.
+      });
+    });
+  }, []);
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const username = formData.get("user");
+    if (!username) return;
+
+    // Client-side navigation keeps the JS module cache alive so the WASM
+    // that started loading above is still instantiated when SSHConsole mounts.
+    // The shouldRevalidate function in page.tsx ensures the loader runs once
+    // to create a fresh pre-auth key for this transition.
+    navigate(`?user=${encodeURIComponent(username.toString())}`);
+  }
+
   return (
     <div className="flex h-screen items-center justify-center">
       <Card>
@@ -28,24 +55,7 @@ export default function UserPrompt({ hostname }: UserPromptProps) {
           </Link>{" "}
           for common errors.
         </Card.Text>
-        <Form
-          method="GET"
-          onSubmit={(e) => {
-            const formData = new FormData(e.currentTarget);
-            const username = formData.get("user");
-            if (!username) {
-              e.preventDefault();
-              return;
-            }
-
-            // We have to do a full navigation, since the page needs a full
-            // reload to initialize the SSH connection due to us disabling the
-            // revalidator.
-            const url = new URL(window.location.href);
-            url.searchParams.set("user", username.toString());
-            window.location.assign(url.toString());
-          }}
-        >
+        <form onSubmit={handleSubmit}>
           <Input
             labelHidden
             type="text"
@@ -58,7 +68,7 @@ export default function UserPrompt({ hostname }: UserPromptProps) {
           <Button type="submit" variant="heavy" className="w-full">
             Connect
           </Button>
-        </Form>
+        </form>
       </Card>
     </div>
   );
