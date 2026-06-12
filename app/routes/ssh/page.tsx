@@ -74,7 +74,7 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     user: hsUser.id,
     ephemeral: true,
     reusable: false,
-    expiration: new Date(Date.now() + 60 * 1000), // 1 minute expiry
+    expiration: new Date(Date.now() + 5 * 60 * 1000), // 5 minute expiry (wasm download can be slow)
     aclTags: null,
   });
 
