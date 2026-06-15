@@ -32,10 +32,11 @@ export default function RDPUserPrompt({ hostname }: RDPUserPromptProps) {
     const username = formData.get("user")?.toString();
     const password = formData.get("password")?.toString() ?? "";
     const domain = formData.get("domain")?.toString() ?? "";
+    const colorDepth = parseInt(formData.get("colorDepth")?.toString() ?? "24", 10);
     if (!username || !password) return;
 
     localStorage.setItem(LS_KEY(hostname), username);
-    navigate(`?user=${encodeURIComponent(username)}`, { state: { password, domain } });
+    navigate(`?user=${encodeURIComponent(username)}`, { state: { password, domain, colorDepth } });
   }
 
   return (
@@ -71,8 +72,19 @@ export default function RDPUserPrompt({ hostname }: RDPUserPromptProps) {
             label="Domain (optional)"
             name="domain"
             placeholder="Domain (optional)"
-            className="mb-4"
+            className="mb-2"
           />
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-mist-400 mb-1">Color Depth</label>
+            <select
+              name="colorDepth"
+              defaultValue="24"
+              className="w-full rounded-md border border-mist-600 bg-mist-900 px-3 py-2 text-sm text-mist-100 focus:outline-none focus:ring-1 focus:ring-mist-400"
+            >
+              <option value="24">24-bit (recommended)</option>
+              <option value="16">16-bit (faster, lower quality)</option>
+            </select>
+          </div>
           <Button type="submit" variant="heavy" className="w-full">
             Connect
           </Button>

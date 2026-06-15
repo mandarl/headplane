@@ -32,6 +32,7 @@ export interface RDPSessionConfig {
   domain?: string;
   width: number;
   height: number;
+  colorDepth?: number;
   onUpdate: (x: number, y: number, w: number, h: number, pixels: Uint8ClampedArray) => void;
   onConnect: () => void;
   onDisconnect: () => void;

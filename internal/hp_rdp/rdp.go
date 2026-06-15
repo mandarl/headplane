@@ -44,7 +44,7 @@ func NewRDPSession(ipn Dialer, cfg *RDPConfig) (*RDPSession, error) {
 		domain = cfg.Domain
 	}
 
-	client, err := loginWithConn(conn, domain, uname, cfg.Password, cfg.Width, cfg.Height)
+	client, err := loginWithConn(conn, domain, uname, cfg.Password, cfg.Width, cfg.Height, cfg.ColorDepth)
 	if err != nil {
 		cancel()
 		conn.Close()

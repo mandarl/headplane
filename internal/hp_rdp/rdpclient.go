@@ -31,7 +31,17 @@ type rdpClient struct {
 // loginWithConn initialises the full RDP protocol stack on an already-connected
 // net.Conn and completes the X.224 handshake. Callers must then read events
 // via the pdu callbacks (onBitmap, onReady, onClose).
-func loginWithConn(conn net.Conn, domain, user, password string, width, height int) (*rdpClient, error) {
+// bppToHighColor converts a bits-per-pixel value to the grdp HighColor constant.
+func bppToHighColor(bpp int) uint16 {
+	switch bpp {
+	case 16:
+		return 0x0010 // HIGH_COLOR_16BPP
+	default:
+		return 0x0018 // HIGH_COLOR_24BPP
+	}
+}
+
+func loginWithConn(conn net.Conn, domain, user, password string, width, height, colorDepth int) (*rdpClient, error) {
 	c := &rdpClient{}
 	c.tpkt = tpkt.New(core.NewSocketLayer(conn), nla.NewNTLMv2(domain, user, password))
 	c.x224 = x224.New(c.tpkt)
@@ -40,6 +50,7 @@ func loginWithConn(conn net.Conn, domain, user, password string, width, height i
 	c.pdu = pdu.NewClient(c.sec)
 
 	c.mcs.SetClientCoreData(uint16(width), uint16(height))
+	c.mcs.SetColorDepth(bppToHighColor(colorDepth))
 	c.sec.SetUser(user)
 	c.sec.SetPwd(password)
 	c.sec.SetDomain(domain)

@@ -169,6 +169,12 @@ build_wasm() {
 		sed -i 's|plugin\.CLIPRDR_SVC_CHANNEL_NAME|"cliprdr"|g' "$GCC_FILE"
 	fi
 
+	MCS_FILE="vendor/github.com/tomatome/grdp/protocol/t125/mcs.go"
+	if [ -f "$MCS_FILE" ]; then
+		echo "==> Patching grdp mcs.go to add SetColorDepth method"
+		printf '\nfunc (c *MCSClient) SetColorDepth(depth uint16) {\n\tc.clientCoreData.HighColorDepth = gcc.HighColor(depth)\n}\n' >> "$MCS_FILE"
+	fi
+
 	GOOS=js GOARCH=wasm go build -mod=vendor \
 		-ldflags="-s -w" -trimpath \
 		-o "$WASM_OUTPUT" ./cmd/hp_ssh

@@ -109,9 +109,10 @@ export const links: Route.LinksFunction = () => [
 export default function Page({ loaderData }: Route.ComponentProps) {
   const { hostname, username, offline, node } = loaderData;
   const location = useLocation();
-  const state = location.state as { password?: string; domain?: string } | null;
+  const state = location.state as { password?: string; domain?: string; colorDepth?: number } | null;
   const password = state?.password ?? "";
   const domain = state?.domain ?? "";
+  const colorDepth = state?.colorDepth ?? 24;
 
   if (offline) {
     return (
@@ -142,6 +143,7 @@ export default function Page({ loaderData }: Route.ComponentProps) {
       username={username}
       password={password}
       domain={domain}
+      colorDepth={colorDepth}
       node={node}
     />
   );

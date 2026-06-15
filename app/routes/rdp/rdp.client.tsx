@@ -50,11 +50,12 @@ interface RDPCanvasProps {
   username: string;
   password: string;
   domain?: string;
+  colorDepth?: number;
   onConnected: () => void;
   onError: (msg: string) => void;
 }
 
-export default function RDPCanvas({ rdp, ipAddress, username, password, domain, onConnected, onError }: RDPCanvasProps) {
+export default function RDPCanvas({ rdp, ipAddress, username, password, domain, colorDepth, onConnected, onError }: RDPCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sessionRef = useRef<RDPSession | null>(null);
 
@@ -85,6 +86,7 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
       domain: domain ?? "",
       width: canvas.width,
       height: canvas.height,
+      colorDepth,
       onUpdate: (x, y, w, h, pixels) => {
         backCtx.putImageData(new ImageData(pixels, w, h), x, y);
         if (!rafId) {
@@ -168,6 +170,7 @@ interface RDPConsoleProps {
   username: string;
   password: string;
   domain?: string;
+  colorDepth?: number;
   node: {
     ipAddress: string;
     controlURL: string;
@@ -176,7 +179,7 @@ interface RDPConsoleProps {
   };
 }
 
-export function RDPConsole({ hostname, username, password, domain, node }: RDPConsoleProps) {
+export function RDPConsole({ hostname, username, password, domain, colorDepth, node }: RDPConsoleProps) {
   const [rdp, setRdp] = useState<HeadplaneRDP | null>(null);
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState("Starting tunnel…");
@@ -246,6 +249,7 @@ export function RDPConsole({ hostname, username, password, domain, node }: RDPCo
           username={username}
           password={password}
           domain={domain}
+          colorDepth={colorDepth}
           onConnected={() => setConnected(true)}
           onError={(msg) => setError(msg)}
         />

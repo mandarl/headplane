@@ -14,6 +14,7 @@ type RDPConfig struct {
 	Domain       string
 	Width        int
 	Height       int
+	ColorDepth   int // bits per pixel: 16 or 24 (default)
 	OnUpdate     func(x, y, w, h int, pixels js.Value)
 	OnConnect    func()
 	OnDisconnect func()
@@ -41,13 +42,19 @@ func ParseRDPConfig(obj js.Value) (*RDPConfig, error) {
 		height = 720
 	}
 
+	colorDepth := safeInt("colorDepth", obj)
+	if colorDepth != 16 && colorDepth != 24 {
+		colorDepth = 24
+	}
+
 	config := &RDPConfig{
-		IPAddress: ipAddress,
-		Username:  username,
-		Password:  password,
-		Domain:    safeString("domain", obj),
-		Width:     width,
-		Height:    height,
+		IPAddress:  ipAddress,
+		Username:   username,
+		Password:   password,
+		Domain:     safeString("domain", obj),
+		Width:      width,
+		Height:     height,
+		ColorDepth: colorDepth,
 	}
 
 	onUpdate := obj.Get("onUpdate")
