@@ -143,7 +143,7 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
     <canvas
       ref={canvasRef}
       tabIndex={0}
-      className="block h-screen w-screen cursor-none outline-none"
+      className="block h-screen w-screen outline-none"
       style={{ background: "#000" }}
     />
   );
