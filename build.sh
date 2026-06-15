@@ -169,11 +169,15 @@ build_wasm() {
 		sed -i 's|plugin\.CLIPRDR_SVC_CHANNEL_NAME|"cliprdr"|g' "$GCC_FILE"
 	fi
 
-	GOOS=js GOARCH=wasm go build -mod=vendor -o "$WASM_OUTPUT" ./cmd/hp_ssh
+	GOOS=js GOARCH=wasm go build -mod=vendor \
+		-ldflags="-s -w" -trimpath \
+		-o "$WASM_OUTPUT" ./cmd/hp_ssh
 
 	echo "==> Building RDP WASM module → $RDP_WASM_OUTPUT"
 	mkdir -p "$(dirname "$RDP_WASM_OUTPUT")"
-	GOOS=js GOARCH=wasm go build -mod=vendor -o "$RDP_WASM_OUTPUT" ./cmd/hp_rdp
+	GOOS=js GOARCH=wasm go build -mod=vendor \
+		-ldflags="-s -w" -trimpath \
+		-o "$RDP_WASM_OUTPUT" ./cmd/hp_rdp
 
 	rm -rf vendor
 }
