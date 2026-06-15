@@ -22,6 +22,7 @@ interface MenuProps {
   isDisabled?: boolean;
   existingTags?: string[];
   supportsNodeOwnerChange: boolean;
+  agentEnabled?: boolean;
 }
 
 type Modal = "rename" | "expire" | "remove" | "routes" | "move" | "tags" | null;
@@ -34,9 +35,10 @@ export default function MachineMenu({
   isDisabled,
   existingTags,
   supportsNodeOwnerChange,
+  agentEnabled,
 }: MenuProps) {
   const [modal, setModal] = useState<Modal>(null);
-  const supportsTailscaleSSH = node.hostInfo?.sshHostKeys && node.hostInfo?.sshHostKeys.length > 0;
+  const supportsTailscaleSSH = agentEnabled && node.online && !node.expired;
 
   return (
     <div className="flex items-center justify-end gap-1.5 px-4">

@@ -106,6 +106,7 @@ export default function Page({
           <StatusCircle className="h-4 w-4" isOnline={node.online} />
         </span>
         <MenuOptions
+          agentEnabled={agent !== undefined}
           existingTags={existingTags}
           isFullButton
           magic={magic}

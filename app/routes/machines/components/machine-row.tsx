@@ -138,6 +138,7 @@ export default function MachineRow({
       </td>
       <td className="py-2 pr-0.5">
         <MenuOptions
+          agentEnabled={isAgent !== undefined}
           existingTags={existingTags}
           isDisabled={isDisabled}
           magic={magic}
