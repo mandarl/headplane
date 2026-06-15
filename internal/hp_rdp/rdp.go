@@ -9,6 +9,7 @@ import (
 	"syscall/js"
 
 	"github.com/tomatome/grdp/core"
+	"github.com/tomatome/grdp/glog"
 	"github.com/tomatome/grdp/protocol/pdu"
 )
 
@@ -20,6 +21,12 @@ type Dialer interface {
 type RDPSession struct {
 	client *rdpClient
 	cancel context.CancelFunc
+}
+
+func init() {
+	// grdp's glog panics if any log call runs before a logger is set.
+	// Suppress all logging by setting level to NONE.
+	glog.SetLevel(glog.NONE)
 }
 
 func NewRDPSession(ipn Dialer, cfg *RDPConfig) (*RDPSession, error) {
