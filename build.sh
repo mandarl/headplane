@@ -158,6 +158,13 @@ build_wasm() {
 			die "failed to apply DERP port patch"
 	fi
 
+	GCC_PATCH="$ROOT_DIR/patches/grdp-gcc-remove-plugin-import.patch"
+	if [ -f "$GCC_PATCH" ]; then
+		echo "==> Applying grdp gcc plugin patch"
+		patch -d vendor/github.com/tomatome/grdp -p1 < "$GCC_PATCH" || \
+			die "failed to apply grdp gcc patch"
+	fi
+
 	GOOS=js GOARCH=wasm go build -mod=vendor -o "$WASM_OUTPUT" ./cmd/hp_ssh
 
 	echo "==> Building RDP WASM module → $RDP_WASM_OUTPUT"
