@@ -17,6 +17,7 @@ export default [
   route("/oidc/callback", "routes/auth/oidc-callback.ts"),
   route("/oidc/start", "routes/auth/oidc-start.ts"),
   route("/ssh/:id", "routes/ssh/page.tsx"),
+  route("/rdp/:id", "routes/rdp/page.tsx"),
 
   // All the main logged-in routes
   layout("layout/app.tsx", [

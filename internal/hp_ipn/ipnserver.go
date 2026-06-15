@@ -104,6 +104,10 @@ func NewTsWasmIpn(options *IPNConfig, callbacks *IPNCallbacks) (*TsWasmIpn, erro
 	}, nil
 }
 
+func (i *TsWasmIpn) Dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	return i.dialer.UserDial(ctx, network, addr)
+}
+
 func (t *TsWasmIpn) Start(ctx context.Context) error {
 	listener, err := safesocket.Listen("")
 	if err != nil {

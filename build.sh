@@ -22,6 +22,7 @@ SKIP_PNPM_PRUNE=0
 APP_INSTALL_ONLY=0
 
 WASM_OUTPUT="$PUBLIC_DIR/hp_ssh.wasm"
+RDP_WASM_OUTPUT="$PUBLIC_DIR/hp_rdp.wasm"
 AGENT_OUTPUT="$BUILD_DIR/hp_agent"
 FAKE_SHELL_OUTPUT="$BUILD_DIR/hp_fake_sh"
 HEALTHCHECK_OUTPUT="$BUILD_DIR/hp_healthcheck"
@@ -44,6 +45,12 @@ while [ $# -gt 0 ]; do
 			shift
 			[ $# -gt 0 ] || die "--wasm-output requires a path"
 			WASM_OUTPUT=$1
+			;;
+
+		--rdp-wasm-output)
+			shift
+			[ $# -gt 0 ] || die "--rdp-wasm-output requires a path"
+			RDP_WASM_OUTPUT=$1
 			;;
 
 		--agent-output)
@@ -76,6 +83,7 @@ Usage: $0 [flags]
   --skip-pnpm-prune            skip pruning devDependencies from node_modules
   --app-install-only           only install app dependencies, skip build
   --wasm-output <path>         override wasm output path
+  --rdp-wasm-output <path>     override RDP wasm output path
   --agent-output <path>        override agent output path
   --fake-shell-output <path>   override fake shell output path
   --healthcheck-output <path>  override healthcheck output path
@@ -151,12 +159,18 @@ build_wasm() {
 	fi
 
 	GOOS=js GOARCH=wasm go build -mod=vendor -o "$WASM_OUTPUT" ./cmd/hp_ssh
+
+	echo "==> Building RDP WASM module → $RDP_WASM_OUTPUT"
+	mkdir -p "$(dirname "$RDP_WASM_OUTPUT")"
+	GOOS=js GOARCH=wasm go build -mod=vendor -o "$RDP_WASM_OUTPUT" ./cmd/hp_rdp
+
 	rm -rf vendor
 }
 
 build_app() {
 	echo "==> Building React Router app → $BUILD_DIR"
 	[ -f "$WASM_OUTPUT" ] || echo "warning: Building without SSH WASM module"
+	[ -f "$RDP_WASM_OUTPUT" ] || echo "warning: Building without RDP WASM module"
 	pnpm install --frozen-lockfile
 
 	if [ "$APP_INSTALL_ONLY" -eq 1 ]; then

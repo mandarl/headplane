@@ -15,11 +15,13 @@ ARG IMAGE_TAG
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0 IMAGE_TAG=$IMAGE_TAG \
 	./build.sh --wasm --agent --fake-shell --healthcheck \
 		--wasm-output /bin/hp_ssh.wasm \
+		--rdp-wasm-output /bin/hp_rdp.wasm \
 		--agent-output /bin/hp_agent \
 		--fake-shell-output /bin/fake-sh \
 		--healthcheck-output /bin/hp_healthcheck
 
 RUN chmod +x /bin/hp_ssh.wasm
+RUN chmod +x /bin/hp_rdp.wasm
 RUN chmod +x /bin/hp_agent
 RUN chmod +x /bin/fake-sh
 RUN chmod +x /bin/hp_healthcheck
@@ -35,6 +37,7 @@ COPY patches ./patches
 COPY package.json pnpm-lock.yaml build.sh ./
 
 COPY --from=go-base /bin/hp_ssh.wasm /run/public/hp_ssh.wasm
+COPY --from=go-base /bin/hp_rdp.wasm /run/public/hp_rdp.wasm
 COPY --from=go-base /bin/wasm_exec.js /run/public/wasm_exec.js
 RUN ./build.sh --app --app-install-only
 

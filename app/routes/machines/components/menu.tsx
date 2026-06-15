@@ -1,4 +1,4 @@
-import { Cog, Ellipsis, SquareTerminal } from "lucide-react";
+import { Cog, Ellipsis, Monitor, SquareTerminal } from "lucide-react";
 import { useState } from "react";
 
 import Button from "~/components/button";
@@ -39,6 +39,8 @@ export default function MachineMenu({
 }: MenuProps) {
   const [modal, setModal] = useState<Modal>(null);
   const supportsTailscaleSSH = agentEnabled && node.online && !node.expired;
+  const isWindows = node.hostInfo?.OS?.toLowerCase() === "windows";
+  const supportsRDP = agentEnabled && node.online && !node.expired && isWindows;
 
   return (
     <div className="flex items-center justify-end gap-1.5 px-4">
@@ -139,6 +141,44 @@ export default function MachineMenu({
           </Button>
         )
       ) : undefined}
+
+      {supportsRDP ? (
+        isFullButton ? (
+          <Button
+            className="flex items-center gap-x-2"
+            onClick={() => {
+              window.open(
+                `${__PREFIX__}/rdp/${node.givenName}`,
+                "_blank",
+                "noopener,noreferrer,width=1024,height=768",
+              );
+            }}
+            variant="heavy"
+          >
+            <Monitor className="h-5" />
+            <p>RDP</p>
+          </Button>
+        ) : (
+          <Button
+            className={cn(
+              "py-0.5 rounded-lg",
+              "opacity-0 pointer-events-none group-hover:opacity-100",
+              "group-hover:pointer-events-auto",
+            )}
+            variant="light"
+            onClick={() => {
+              window.open(
+                `${__PREFIX__}/rdp/${node.givenName}`,
+                "_blank",
+                "noopener,noreferrer,width=1024,height=768",
+              );
+            }}
+          >
+            RDP
+          </Button>
+        )
+      ) : undefined}
+
       <Menu disabled={isDisabled}>
         <MenuTrigger
           className={
