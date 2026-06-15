@@ -28,6 +28,8 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
+    let closed = false;
+
     const session = rdp.openSession({
       ipAddress,
       username,
@@ -42,7 +44,9 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
       onConnect: () => {
         onConnected();
       },
-      onDisconnect: () => {},
+      onDisconnect: () => {
+        if (!closed) onError("Session ended by remote host.");
+      },
       onError: (msg) => {
         console.error("[rdp] session error:", msg);
         onError(msg);
@@ -81,6 +85,7 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
     canvas.focus();
 
     return () => {
+      closed = true;
       canvas.removeEventListener("keydown", onKeyDown);
       canvas.removeEventListener("keyup", onKeyUp);
       canvas.removeEventListener("mousemove", onMouseMove);

@@ -55,7 +55,11 @@ func loginWithConn(conn net.Conn, domain, user, password string, width, height i
 
 func (c *rdpClient) onBitmap(f func([]pdu.BitmapData)) {
 	c.pdu.On("update", func(data interface{}) {
-		f(data.([]pdu.BitmapData))
+		bitmaps, ok := data.([]pdu.BitmapData)
+		if !ok {
+			return
+		}
+		f(bitmaps)
 	})
 }
 
@@ -140,12 +144,15 @@ func bitmapToRGBA(data []byte, bpp, width, height int) []byte {
 	size := width * height * 4
 	rgba := make([]byte, size)
 	switch bpp {
-	case 2: // 16bpp BGR565
+	case 2: // 16bpp BGR565 — expand each channel to full 8 bits
 		for i := 0; i < width*height && (i+1)*2 <= len(data); i++ {
 			pixel := uint16(data[i*2]) | uint16(data[i*2+1])<<8
-			rgba[i*4] = uint8((pixel & 0xF800) >> 8)
-			rgba[i*4+1] = uint8((pixel & 0x07E0) >> 3)
-			rgba[i*4+2] = uint8((pixel & 0x001F) << 3)
+			r5 := (pixel >> 11) & 0x1F
+			g6 := (pixel >> 5) & 0x3F
+			b5 := pixel & 0x1F
+			rgba[i*4] = uint8((r5 << 3) | (r5 >> 2))
+			rgba[i*4+1] = uint8((g6 << 2) | (g6 >> 4))
+			rgba[i*4+2] = uint8((b5 << 3) | (b5 >> 2))
 			rgba[i*4+3] = 255
 		}
 	case 3: // 24bpp BGR

@@ -65,24 +65,27 @@ func NewRDPSession(ipn Dialer, cfg *RDPConfig) (*RDPSession, error) {
 		for _, bm := range bitmaps {
 			x := int(bm.DestLeft)
 			y := int(bm.DestTop)
-			// Use the canvas rect, not the encoded tile dimensions, for placement.
-			// bm.Width/Height are the encoded tile size (used for decompression).
-			w := int(bm.DestRight-bm.DestLeft) + 1
-			h := int(bm.DestBottom-bm.DestTop) + 1
 			bpp := int(bm.BitsPerPixel) / 8
 
+			// pw/ph are the pixel dimensions of the decoded RGBA data.
+			// For compressed tiles, Decompress produces bm.Width×bm.Height pixels.
+			// For uncompressed tiles, the data matches the dest rect exactly.
 			var raw []byte
+			var pw, ph int
 			if bm.IsCompress() {
-				raw = core.Decompress(bm.BitmapDataStream, int(bm.Width), int(bm.Height), bpp)
+				pw, ph = int(bm.Width), int(bm.Height)
+				raw = core.Decompress(bm.BitmapDataStream, pw, ph, bpp)
 			} else {
+				pw = int(bm.DestRight-bm.DestLeft) + 1
+				ph = int(bm.DestBottom-bm.DestTop) + 1
 				raw = bm.BitmapDataStream
 			}
 
-			rgba := bitmapToRGBA(raw, bpp, w, h)
+			rgba := bitmapToRGBA(raw, bpp, pw, ph)
 
 			jsArr := js.Global().Get("Uint8ClampedArray").New(len(rgba))
 			js.CopyBytesToJS(jsArr, rgba)
-			cfg.OnUpdate(x, y, w, h, jsArr)
+			cfg.OnUpdate(x, y, pw, ph, jsArr)
 		}
 	})
 

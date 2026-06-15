@@ -61,18 +61,18 @@ function loadGoHelper(): Promise<void> {
   });
 }
 
-export async function loadHeadplaneRDPWASM(): Promise<HeadplaneRDPFactory> {
+export function loadHeadplaneRDPWASM(): Promise<HeadplaneRDPFactory> {
   if (!resolvedFactory) {
-    await loadGoHelper();
-
-    const go = new Go();
-    const result = await WebAssembly.instantiateStreaming(fetch(WASM_MODULE_URL), go.importObject);
-
-    resolvedFactory = new Promise<HeadplaneRDPFactory>((resolve) => {
-      globalThis.__hp_rdp_resolve = resolve;
-    });
-
-    go.run(result.instance);
+    // Assign before any await so concurrent callers get the same promise.
+    resolvedFactory = (async () => {
+      await loadGoHelper();
+      const go = new Go();
+      const result = await WebAssembly.instantiateStreaming(fetch(WASM_MODULE_URL), go.importObject);
+      return new Promise<HeadplaneRDPFactory>((resolve) => {
+        globalThis.__hp_rdp_resolve = resolve;
+        go.run(result.instance);
+      });
+    })();
   }
 
   return resolvedFactory;
