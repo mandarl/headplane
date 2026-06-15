@@ -11,9 +11,10 @@ interface RDPCanvasProps {
   password: string;
   domain?: string;
   onConnected: () => void;
+  onError: (msg: string) => void;
 }
 
-export default function RDPCanvas({ rdp, ipAddress, username, password, domain, onConnected }: RDPCanvasProps) {
+export default function RDPCanvas({ rdp, ipAddress, username, password, domain, onConnected, onError }: RDPCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sessionRef = useRef<RDPSession | null>(null);
 
@@ -44,6 +45,7 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
       onDisconnect: () => {},
       onError: (msg) => {
         console.error("[rdp] session error:", msg);
+        onError(msg);
       },
     });
 
@@ -117,6 +119,7 @@ export function RDPConsole({ hostname, username, password, domain, node }: RDPCo
   const [rdp, setRdp] = useState<HeadplaneRDP | null>(null);
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState("Starting tunnel…");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -131,12 +134,17 @@ export function RDPConsole({ hostname, username, password, domain, node }: RDPCo
         hostname: node.ephemeralHostname,
         onReady: () => {
           if (!cancelled) {
-            setStatus(`Connecting to ${hostname}…`);
+            setStatus(`Connecting to ${hostname} via RDP…`);
             setRdp(instance);
           }
         },
-        onError: (msg) => console.error("[rdp] IPN error:", msg),
+        onError: (msg) => {
+          console.error("[rdp] IPN error:", msg);
+          if (!cancelled) setError(`Tailnet error: ${msg}`);
+        },
       });
+    }).catch((err) => {
+      if (!cancelled) setError(`Failed to load RDP module: ${err}`);
     });
 
     return () => {
@@ -146,7 +154,7 @@ export function RDPConsole({ hostname, username, password, domain, node }: RDPCo
 
   return (
     <div className="fixed inset-0 bg-black">
-      {!connected && (
+      {!connected && !error && (
         <div className="absolute inset-0 z-50 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="size-8 animate-spin text-mist-200" />
@@ -155,7 +163,22 @@ export function RDPConsole({ hostname, username, password, domain, node }: RDPCo
         </div>
       )}
 
-      {rdp && (
+      {error && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4 max-w-md text-center px-6">
+            <p className="text-red-400 font-medium">RDP Connection Failed</p>
+            <p className="text-sm text-mist-400 font-mono break-all">{error}</p>
+            <button
+              className="text-sm text-mist-300 underline"
+              onClick={() => window.location.reload()}
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      )}
+
+      {rdp && !error && (
         <RDPCanvas
           rdp={rdp}
           ipAddress={node.ipAddress}
@@ -163,6 +186,7 @@ export function RDPConsole({ hostname, username, password, domain, node }: RDPCo
           password={password}
           domain={domain}
           onConnected={() => setConnected(true)}
+          onError={(msg) => setError(msg)}
         />
       )}
     </div>
