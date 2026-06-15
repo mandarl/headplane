@@ -36,6 +36,7 @@ func ParseIPNConfig(obj js.Value) (*IPNConfig, error) {
 type TunnelConfig struct {
 	IPAddress    string
 	Username     string
+	Password     string
 	Timeout      int
 	OnData       func(data string)
 	OnConnect    func()
@@ -61,6 +62,7 @@ func ParseTunnelConfig(obj js.Value) (*TunnelConfig, error) {
 	config := &TunnelConfig{
 		IPAddress: ipAddress,
 		Username:  username,
+		Password:  safeString("password", obj),
 		Timeout:   timeout,
 	}
 

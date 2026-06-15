@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import Button from "~/components/button";
@@ -9,10 +9,18 @@ import Link from "~/components/link";
 
 interface UserPromptProps {
   hostname: string;
+  isWindows?: boolean;
 }
 
-export default function UserPrompt({ hostname }: UserPromptProps) {
+const LS_KEY = (hostname: string) => `headplane:ssh_user:${hostname}`;
+
+export default function UserPrompt({ hostname, isWindows }: UserPromptProps) {
   const navigate = useNavigate();
+  const [cachedUser, setCachedUser] = useState("");
+
+  useEffect(() => {
+    setCachedUser(localStorage.getItem(LS_KEY(hostname)) ?? "");
+  }, [hostname]);
 
   // Start downloading and instantiating the WASM while the user types their
   // username. The result is stored in a module-level variable in wasm.client.ts
@@ -28,14 +36,21 @@ export default function UserPrompt({ hostname }: UserPromptProps) {
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const username = formData.get("user");
+    const username = formData.get("user")?.toString();
     if (!username) return;
+
+    localStorage.setItem(LS_KEY(hostname), username);
 
     // Client-side navigation keeps the JS module cache alive so the WASM
     // that started loading above is still instantiated when SSHConsole mounts.
     // The shouldRevalidate function in page.tsx ensures the loader runs once
     // to create a fresh pre-auth key for this transition.
-    navigate(`?user=${encodeURIComponent(username.toString())}`);
+    if (isWindows) {
+      const password = formData.get("password")?.toString() ?? "";
+      navigate(`?user=${encodeURIComponent(username)}`, { state: { password } });
+    } else {
+      navigate(`?user=${encodeURIComponent(username)}`);
+    }
   }
 
   return (
@@ -61,10 +76,22 @@ export default function UserPrompt({ hostname }: UserPromptProps) {
             type="text"
             label="Username"
             name="user"
+            defaultValue={cachedUser}
             placeholder="Username"
             className="mb-2"
             required
           />
+          {isWindows && (
+            <Input
+              labelHidden
+              type="password"
+              label="Password"
+              name="password"
+              placeholder="Password"
+              className="mb-2"
+              required
+            />
+          )}
           <Button type="submit" variant="heavy" className="w-full">
             Connect
           </Button>

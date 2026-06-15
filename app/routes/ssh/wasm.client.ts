@@ -31,6 +31,7 @@ export interface HeadplaneSSH {
 interface TunnelConfig {
   ipAddress: string;
   username: string;
+  password?: string;
   timeout?: number;
   onData: (data: string) => void;
   onConnect: () => void;

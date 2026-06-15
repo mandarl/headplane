@@ -1,6 +1,6 @@
 import { Loader2, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
-import { data, isRouteErrorResponse, type ShouldRevalidateFunction } from "react-router";
+import { data, isRouteErrorResponse, useLocation, type ShouldRevalidateFunction } from "react-router";
 
 import Button from "~/components/button";
 import Card from "~/components/card";
@@ -55,12 +55,14 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     throw data(sshErrors.node_not_found(hostname), 404);
   }
 
+  const isWindows = node.hostInfo?.OS?.toLowerCase() === "windows";
+
   if (!node.online) {
-    return { hostname, username, offline: true, node: undefined };
+    return { hostname, username, offline: true, node: undefined, isWindows };
   }
 
   if (!username) {
-    return { hostname, username: undefined, offline: false, node: undefined };
+    return { hostname, username: undefined, offline: false, node: undefined, isWindows };
   }
 
   // The user must exist within Headscale to generate a pre-auth key
@@ -86,6 +88,7 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     hostname,
     username,
     offline: false,
+    isWindows,
     node: {
       ipAddress: node.ipAddresses[0],
       controlURL,
@@ -111,7 +114,9 @@ export const links: Route.LinksFunction = () => [
 ];
 
 export default function Page({ loaderData }: Route.ComponentProps) {
-  const { hostname, username, offline, node } = loaderData;
+  const { hostname, username, offline, node, isWindows } = loaderData;
+  const location = useLocation();
+  const password: string | undefined = (location.state as { password?: string } | null)?.password;
 
   if (offline) {
     return (
@@ -133,19 +138,21 @@ export default function Page({ loaderData }: Route.ComponentProps) {
   }
 
   if (!username || !node) {
-    return <UserPrompt hostname={hostname} />;
+    return <UserPrompt hostname={hostname} isWindows={isWindows} />;
   }
 
-  return <SSHConsole hostname={hostname} username={username} node={node} />;
+  return <SSHConsole hostname={hostname} username={username} password={password} node={node} />;
 }
 
 function SSHConsole({
   hostname,
   username,
+  password,
   node,
 }: {
   hostname: string;
   username: string;
+  password?: string;
   node: { ipAddress: string; controlURL: string; preAuthKey: string; ephemeralHostname: string };
 }) {
   const [ssh, setSsh] = useState<HeadplaneSSH | null>(null);
@@ -201,6 +208,7 @@ function SSHConsole({
         <Ghostty
           ssh={ssh}
           username={username}
+          password={password}
           ipAddress={node.ipAddress}
           onConnected={() => setConnected(true)}
         />

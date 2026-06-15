@@ -18,7 +18,7 @@ const HEADPLANE_THEME: GhosttyTheme = {
   raw: {},
 };
 
-function createSSHTransport(ssh: HeadplaneSSH, ipAddress: string, username: string): PtyTransport {
+function createSSHTransport(ssh: HeadplaneSSH, ipAddress: string, username: string, password?: string): PtyTransport {
   let session: TunnelSession | null = null;
 
   return {
@@ -26,6 +26,7 @@ function createSSHTransport(ssh: HeadplaneSSH, ipAddress: string, username: stri
       session = ssh.openTunnel({
         ipAddress,
         username,
+        password,
         onData: (data) => options.callbacks.onData?.(data),
         onConnect: () => options.callbacks.onConnect?.(),
         onDisconnect: () => {
@@ -64,16 +65,17 @@ interface GhosttyProps {
   ssh: HeadplaneSSH;
   ipAddress: string;
   username: string;
+  password?: string;
   onConnected: () => void;
 }
 
-export default function Ghostty({ ssh, ipAddress, username, onConnected }: GhosttyProps) {
+export default function Ghostty({ ssh, ipAddress, username, password, onConnected }: GhosttyProps) {
   const divRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!divRef.current) return;
 
-    const transport = createSSHTransport(ssh, ipAddress, username);
+    const transport = createSSHTransport(ssh, ipAddress, username, password);
     const restty = new Restty({
       root: divRef.current,
       createInitialPane: true,
@@ -131,7 +133,7 @@ export default function Ghostty({ ssh, ipAddress, username, onConnected }: Ghost
     return () => {
       restty.destroy();
     };
-  }, [ssh, ipAddress, username]);
+  }, [ssh, ipAddress, username, password]);
 
   return <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-black" ref={divRef} />;
 }

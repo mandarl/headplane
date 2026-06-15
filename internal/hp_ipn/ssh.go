@@ -62,6 +62,9 @@ func (s *SSHSession) ConnectAndRun() {
 			return nil
 		},
 	}
+	if s.Config.Password != "" {
+		sshConf.Auth = []ssh.AuthMethod{ssh.Password(s.Config.Password)}
+	}
 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, s.IPAddress, sshConf)
 	if err != nil {
