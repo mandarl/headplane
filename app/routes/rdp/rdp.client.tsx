@@ -70,7 +70,13 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
 
     let closed = false;
     let rafId = 0;
-    const pending: Array<{ x: number; y: number; imageData: ImageData }> = [];
+
+    // Back buffer accumulates RDP tile updates; visible canvas gets a full
+    // blit once per animation frame so the user never sees partial updates.
+    const backBuffer = document.createElement("canvas");
+    backBuffer.width = canvas.width;
+    backBuffer.height = canvas.height;
+    const backCtx = backBuffer.getContext("2d")!;
 
     const session = rdp.openSession({
       ipAddress,
@@ -80,12 +86,11 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
       width: canvas.width,
       height: canvas.height,
       onUpdate: (x, y, w, h, pixels) => {
-        pending.push({ x, y, imageData: new ImageData(pixels, w, h) });
+        backCtx.putImageData(new ImageData(pixels, w, h), x, y);
         if (!rafId) {
           rafId = requestAnimationFrame(() => {
             rafId = 0;
-            for (const u of pending) ctx.putImageData(u.imageData, u.x, u.y);
-            pending.length = 0;
+            ctx.drawImage(backBuffer, 0, 0);
           });
         }
       },
@@ -137,7 +142,6 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
     return () => {
       closed = true;
       if (rafId) cancelAnimationFrame(rafId);
-      pending.length = 0;
       canvas.removeEventListener("keydown", onKeyDown);
       canvas.removeEventListener("keyup", onKeyUp);
       canvas.removeEventListener("mousemove", onMouseMove);
