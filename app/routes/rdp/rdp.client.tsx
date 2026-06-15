@@ -69,6 +69,8 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
     canvas.height = window.innerHeight;
 
     let closed = false;
+    let rafId = 0;
+    const pending: Array<{ x: number; y: number; imageData: ImageData }> = [];
 
     const session = rdp.openSession({
       ipAddress,
@@ -78,8 +80,14 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
       width: canvas.width,
       height: canvas.height,
       onUpdate: (x, y, w, h, pixels) => {
-        const imageData = new ImageData(pixels, w, h);
-        ctx.putImageData(imageData, x, y);
+        pending.push({ x, y, imageData: new ImageData(pixels, w, h) });
+        if (!rafId) {
+          rafId = requestAnimationFrame(() => {
+            rafId = 0;
+            for (const u of pending) ctx.putImageData(u.imageData, u.x, u.y);
+            pending.length = 0;
+          });
+        }
       },
       onConnect: () => {
         onConnected();
@@ -128,6 +136,8 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
 
     return () => {
       closed = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      pending.length = 0;
       canvas.removeEventListener("keydown", onKeyDown);
       canvas.removeEventListener("keyup", onKeyUp);
       canvas.removeEventListener("mousemove", onMouseMove);
