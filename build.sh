@@ -158,11 +158,15 @@ build_wasm() {
 			die "failed to apply DERP port patch"
 	fi
 
-	GCC_PATCH="$ROOT_DIR/patches/grdp-gcc-remove-plugin-import.patch"
-	if [ -f "$GCC_PATCH" ]; then
-		echo "==> Applying grdp gcc plugin patch"
-		patch -d vendor/github.com/tomatome/grdp -p1 < "$GCC_PATCH" || \
-			die "failed to apply grdp gcc patch"
+	# gcc.go imports plugin only for three string constants; plugin has CGo
+	# and is excluded by WASM build constraints. Inline the strings directly.
+	GCC_FILE="vendor/github.com/tomatome/grdp/protocol/t125/gcc/gcc.go"
+	if [ -f "$GCC_FILE" ]; then
+		echo "==> Patching grdp gcc.go to remove plugin import"
+		sed -i 's|"github.com/tomatome/grdp/plugin"||g' "$GCC_FILE"
+		sed -i 's|plugin\.RDPDR_SVC_CHANNEL_NAME|"rdpdr"|g' "$GCC_FILE"
+		sed -i 's|plugin\.RDPSND_SVC_CHANNEL_NAME|"rdpsnd"|g' "$GCC_FILE"
+		sed -i 's|plugin\.CLIPRDR_SVC_CHANNEL_NAME|"cliprdr"|g' "$GCC_FILE"
 	fi
 
 	GOOS=js GOARCH=wasm go build -mod=vendor -o "$WASM_OUTPUT" ./cmd/hp_ssh
