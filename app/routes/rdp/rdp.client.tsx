@@ -1,6 +1,46 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
+// e.code → RDP PS/2 Set-1 scancode. Keys with bit 0x100 set are extended
+// (KBDFLAGS_EXTENDED) and require that flag in the RDP input PDU.
+const CODE_TO_SCANCODE: Record<string, number> = {
+  Escape: 0x01, F1: 0x3B, F2: 0x3C, F3: 0x3D, F4: 0x3E,
+  F5: 0x3F, F6: 0x40, F7: 0x41, F8: 0x42, F9: 0x43,
+  F10: 0x44, F11: 0x57, F12: 0x58,
+  PrintScreen: 0x137, ScrollLock: 0x46, Pause: 0x45,
+  Backquote: 0x29,
+  Digit1: 0x02, Digit2: 0x03, Digit3: 0x04, Digit4: 0x05,
+  Digit5: 0x06, Digit6: 0x07, Digit7: 0x08, Digit8: 0x09,
+  Digit9: 0x0A, Digit0: 0x0B,
+  Minus: 0x0C, Equal: 0x0D, Backspace: 0x0E,
+  Tab: 0x0F,
+  KeyQ: 0x10, KeyW: 0x11, KeyE: 0x12, KeyR: 0x13, KeyT: 0x14,
+  KeyY: 0x15, KeyU: 0x16, KeyI: 0x17, KeyO: 0x18, KeyP: 0x19,
+  BracketLeft: 0x1A, BracketRight: 0x1B, Enter: 0x1C,
+  CapsLock: 0x3A,
+  KeyA: 0x1E, KeyS: 0x1F, KeyD: 0x20, KeyF: 0x21, KeyG: 0x22,
+  KeyH: 0x23, KeyJ: 0x24, KeyK: 0x25, KeyL: 0x26,
+  Semicolon: 0x27, Quote: 0x28, Backslash: 0x2B,
+  ShiftLeft: 0x2A, IntlBackslash: 0x56,
+  KeyZ: 0x2C, KeyX: 0x2D, KeyC: 0x2E, KeyV: 0x2F, KeyB: 0x30,
+  KeyN: 0x31, KeyM: 0x32, Comma: 0x33, Period: 0x34, Slash: 0x35,
+  ShiftRight: 0x36,
+  ControlLeft: 0x1D, MetaLeft: 0x15B, AltLeft: 0x38,
+  Space: 0x39,
+  AltRight: 0x138, MetaRight: 0x15C, ContextMenu: 0x15D,
+  ControlRight: 0x11D,
+  Insert: 0x152, Home: 0x147, PageUp: 0x149,
+  Delete: 0x153, End: 0x14F, PageDown: 0x151,
+  ArrowUp: 0x148, ArrowLeft: 0x14B, ArrowDown: 0x150, ArrowRight: 0x14D,
+  NumLock: 0x45,
+  NumpadDivide: 0x135, NumpadMultiply: 0x37,
+  NumpadSubtract: 0x4A, NumpadAdd: 0x4E, NumpadEnter: 0x11C,
+  NumpadDecimal: 0x53,
+  Numpad0: 0x52, Numpad1: 0x4F, Numpad2: 0x50, Numpad3: 0x51,
+  Numpad4: 0x4B, Numpad5: 0x4C, Numpad6: 0x4D,
+  Numpad7: 0x47, Numpad8: 0x48, Numpad9: 0x49,
+};
+
 import type { HeadplaneRDP, RDPSession } from "./wasm.client";
 import { loadHeadplaneRDPWASM } from "./wasm.client";
 
@@ -57,11 +97,13 @@ export default function RDPCanvas({ rdp, ipAddress, username, password, domain, 
 
     function onKeyDown(e: KeyboardEvent) {
       e.preventDefault();
-      sessionRef.current?.sendKey(e.keyCode, true);
+      const sc = CODE_TO_SCANCODE[e.code];
+      if (sc !== undefined) sessionRef.current?.sendKey(sc, true);
     }
     function onKeyUp(e: KeyboardEvent) {
       e.preventDefault();
-      sessionRef.current?.sendKey(e.keyCode, false);
+      const sc = CODE_TO_SCANCODE[e.code];
+      if (sc !== undefined) sessionRef.current?.sendKey(sc, false);
     }
     function onMouseMove(e: MouseEvent) {
       sessionRef.current?.sendMouse(-1, e.offsetX, e.offsetY, false);

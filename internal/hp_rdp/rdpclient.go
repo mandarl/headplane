@@ -79,14 +79,20 @@ func (c *rdpClient) close() {
 
 func (c *rdpClient) keyDown(scancode int) {
 	p := &pdu.ScancodeKeyEvent{}
-	p.KeyCode = uint16(scancode)
+	if scancode&0x100 != 0 {
+		p.KeyboardFlags |= pdu.KBDFLAGS_EXTENDED
+	}
+	p.KeyCode = uint16(scancode & 0xFF)
 	c.pdu.SendInputEvents(pdu.INPUT_EVENT_SCANCODE, []pdu.InputEventsInterface{p})
 }
 
 func (c *rdpClient) keyUp(scancode int) {
 	p := &pdu.ScancodeKeyEvent{}
-	p.KeyCode = uint16(scancode)
 	p.KeyboardFlags |= pdu.KBDFLAGS_RELEASE
+	if scancode&0x100 != 0 {
+		p.KeyboardFlags |= pdu.KBDFLAGS_EXTENDED
+	}
+	p.KeyCode = uint16(scancode & 0xFF)
 	c.pdu.SendInputEvents(pdu.INPUT_EVENT_SCANCODE, []pdu.InputEventsInterface{p})
 }
 
