@@ -54,17 +54,17 @@ func loginWithConn(conn net.Conn, domain, user, password string, width, height i
 }
 
 func (c *rdpClient) onBitmap(f func([]pdu.BitmapData)) {
-	c.pdu.On("bitmap", func(data interface{}) {
+	c.pdu.On("update", func(data interface{}) {
 		f(data.([]pdu.BitmapData))
 	})
 }
 
 func (c *rdpClient) onReady(f func()) {
-	c.pdu.On("ready", func(interface{}) { f() })
+	c.pdu.On("ready", f)
 }
 
 func (c *rdpClient) onClose(f func()) {
-	c.pdu.On("close", func(interface{}) { f() })
+	c.pdu.On("close", f)
 }
 
 func (c *rdpClient) close() {
