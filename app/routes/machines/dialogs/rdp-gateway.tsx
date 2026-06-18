@@ -1,4 +1,5 @@
 import { Copy, Loader2 } from "lucide-react";
+import { useState } from "react";
 import { useFetcher } from "react-router";
 
 import Button from "~/components/button";
@@ -25,8 +26,16 @@ interface GatewayResult {
   error?: string;
 }
 
+const TIMEOUT_OPTIONS = [
+  { label: "1 hour", mins: 60 },
+  { label: "2 hours", mins: 120 },
+  { label: "3 hours", mins: 180 },
+  { label: "8 hours", mins: 480 },
+] as const;
+
 export default function RDPGateway({ node, isOpen, setIsOpen }: RDPGatewayProps) {
   const fetcher = useFetcher<GatewayResult>();
+  const [timeoutMins, setTimeoutMins] = useState(180);
 
   const targetIp = node.ipAddresses[0] ?? "";
   const isLoading = fetcher.state !== "idle";
@@ -43,6 +52,7 @@ export default function RDPGateway({ node, isOpen, setIsOpen }: RDPGatewayProps)
     form.set("action_id", "enable");
     form.set("target_ip", targetIp);
     form.set("hostname", node.givenName);
+    form.set("timeout_mins", String(timeoutMins));
     fetcher.submit(form, { method: "POST", action: "/api/rdp-gateway" });
   }
 
@@ -102,6 +112,30 @@ export default function RDPGateway({ node, isOpen, setIsOpen }: RDPGatewayProps)
                 </span>
               </p>
             )}
+          </div>
+        )}
+
+        {!isActive && (
+          <div className="mt-3 flex items-center gap-2">
+            <label
+              className="shrink-0 text-sm text-mist-600 dark:text-mist-300"
+              htmlFor="rdp-timeout"
+            >
+              Duration
+            </label>
+            <select
+              className="rounded-md border border-mist-200 bg-white px-2 py-1 text-sm dark:border-mist-700 dark:bg-mist-800"
+              disabled={isLoading}
+              id="rdp-timeout"
+              onChange={(e) => setTimeoutMins(Number(e.target.value))}
+              value={timeoutMins}
+            >
+              {TIMEOUT_OPTIONS.map((o) => (
+                <option key={o.mins} value={o.mins}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 

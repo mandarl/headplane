@@ -11,7 +11,8 @@
 //
 // Enable:
 //   { "action": "enable", "target_ip": "100.x.y.z",
-//     "hostname": "vdi-name", "caller_ip": "1.2.3.4" }
+//     "hostname": "vdi-name", "caller_ip": "1.2.3.4",
+//     "timeout_mins": 180 }                            (optional, webhook default if absent)
 //   → 200 { "host": "...", "port": 33001, "expires_at": "<ISO8601>" }
 //
 // Disable:
@@ -51,6 +52,7 @@ export class RdpGatewayClient {
     targetIp: string,
     hostname: string,
     callerIp: string,
+    timeoutMins?: number,
   ): Promise<RdpGatewayEnableResult> {
     const res = await fetch(this.config.webhook_url, {
       method: "POST",
@@ -60,6 +62,7 @@ export class RdpGatewayClient {
         target_ip: targetIp,
         hostname,
         caller_ip: callerIp,
+        ...(timeoutMins !== undefined && { timeout_mins: timeoutMins }),
       }),
     });
 

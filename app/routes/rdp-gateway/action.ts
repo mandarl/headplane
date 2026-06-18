@@ -63,8 +63,12 @@ export async function action({ request, context }: Route.ActionArgs) {
   switch (actionId) {
     case "enable": {
       const callerIp = getCallerIp(request);
+      const rawMins = formData.get("timeout_mins")?.toString();
+      const timeoutMins = rawMins
+        ? Math.min(Math.max(parseInt(rawMins, 10) || 180, 30), 480)
+        : undefined;
       try {
-        const result = await gateway.enable(targetIp, hostname, callerIp);
+        const result = await gateway.enable(targetIp, hostname, callerIp, timeoutMins);
         return { success: true, ...result };
       } catch (err) {
         // Log detail server-side; return a generic message to the client so
