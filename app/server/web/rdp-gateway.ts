@@ -18,6 +18,11 @@
 // Disable:
 //   { "action": "disable", "target_ip": "100.x.y.z", "hostname": "vdi-name" }
 //   → 200 { "ok": true }
+//
+// Status:
+//   { "action": "status", "target_ip": "100.x.y.z", "hostname": "vdi-name" }
+//   → 200 { "active": false }
+//   → 200 { "active": true, "host": "...", "port": 33001, "expires_at": "<ISO8601>" }
 
 export interface RdpGatewayEnableResult {
   /** Publicly reachable hostname or IP of the relay host. */
@@ -72,6 +77,22 @@ export class RdpGatewayClient {
     }
 
     return res.json() as Promise<RdpGatewayEnableResult>;
+  }
+
+  async status(
+    targetIp: string,
+    hostname: string,
+  ): Promise<{ active: false } | ({ active: true } & RdpGatewayEnableResult)> {
+    const res = await fetch(this.config.webhook_url, {
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify({ action: "status", target_ip: targetIp, hostname }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`RDP gateway webhook error: ${res.status} ${text}`.trim());
+    }
+    return res.json();
   }
 
   async disable(targetIp: string, hostname: string): Promise<void> {

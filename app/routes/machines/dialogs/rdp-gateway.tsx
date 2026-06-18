@@ -77,6 +77,17 @@ export default function RDPGateway({ node, isOpen, setIsOpen }: RDPGatewayProps)
   const isActive = result?.success === true && result.host != null;
   const hasError = result?.success === false;
 
+  // On open, auto-check gateway status so the dialog re-hydrates correctly
+  // after a page reload or deployment that wiped in-memory fetcher state.
+  useEffect(() => {
+    if (!isOpen || fetcher.state !== "idle" || fetcher.data !== undefined) return;
+    const form = new FormData();
+    form.set("action_id", "status");
+    form.set("target_ip", targetIp);
+    form.set("hostname", node.givenName);
+    fetcher.submit(form, { method: "POST", action: "/api/rdp-gateway" });
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Only non-null when isActive is true; JSX uses it inside the isActive guard.
   const endpoint: string = isActive ? `${result!.host}:${result!.port}` : "";
   const countdown = useCountdown(isActive ? result?.expires_at : undefined);

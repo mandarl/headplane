@@ -88,6 +88,16 @@ export async function action({ request, context }: Route.ActionArgs) {
       }
     }
 
+    case "status": {
+      try {
+        const result = await gateway.status(targetIp, hostname);
+        return { success: true, ...result };
+      } catch (err) {
+        log.error("api", "status failed for %s: %s", hostname, String(err));
+        return data({ success: false, error: "Gateway request failed. Check server logs." }, 502);
+      }
+    }
+
     default:
       return data({ success: false, error: "Unknown action" }, 400);
   }
