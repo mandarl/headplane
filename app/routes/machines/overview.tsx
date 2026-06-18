@@ -65,6 +65,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     populatedNodes,
     preAuth: context.auth.can(principal, Capabilities.generate_authkeys),
     publicServer: context.config.headscale.public_url,
+    rdpGatewayEnabled: context.rdpGateway.state === "enabled",
     server: context.config.headscale.url,
     supportsNodeOwnerChange: supportsNodeOwnerChange,
     users,
@@ -437,6 +438,7 @@ export default function Page({ loaderData }: Route.ComponentProps) {
                   key={node.id}
                   magic={loaderData.magic}
                   node={node}
+                  rdpGatewayEnabled={loaderData.rdpGatewayEnabled}
                   users={loaderData.users}
                   supportsNodeOwnerChange={loaderData.supportsNodeOwnerChange}
                 />

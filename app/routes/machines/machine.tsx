@@ -67,6 +67,7 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     existingTags: sortNodeTags(nodes),
     magic,
     node: enhancedNode,
+    rdpGatewayEnabled: context.rdpGateway.state === "enabled",
     stats: lookup?.[enhancedNode.nodeKey],
     supportsNodeOwnerChange: supportsNodeOwnerChange,
     tags,
@@ -77,7 +78,17 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
 export const action = machineAction;
 
 export default function Page({
-  loaderData: { node, tags, users, magic, agent, stats, existingTags, supportsNodeOwnerChange },
+  loaderData: {
+    node,
+    tags,
+    users,
+    magic,
+    agent,
+    stats,
+    existingTags,
+    supportsNodeOwnerChange,
+    rdpGatewayEnabled,
+  },
 }: Route.ComponentProps) {
   const [showRouting, setShowRouting] = useState(false);
 
@@ -111,6 +122,7 @@ export default function Page({
           isFullButton
           magic={magic}
           node={node}
+          rdpGatewayEnabled={rdpGatewayEnabled}
           users={users}
           supportsNodeOwnerChange={supportsNodeOwnerChange}
         />

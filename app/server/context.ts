@@ -12,6 +12,7 @@ import { createLiveStore, nodesResource, usersResource } from "./headscale/live-
 import { type AgentManager, createAgentManager } from "./hp-agent";
 import { createOidcService, type OidcService } from "./oidc/provider";
 import { createAuthService, type Principal } from "./web/auth";
+import { RdpGatewayClient } from "./web/rdp-gateway";
 
 export type AppContext = Awaited<ReturnType<typeof createAppContext>>;
 
@@ -36,6 +37,7 @@ export async function createAppContext(config: HeadplaneConfig) {
     headscaleApiKey ? headscale.client(headscaleApiKey) : undefined,
     db,
   );
+  const rdpGateway = buildRdpGateway(config);
 
   const auth = createAuthService({
     secret: config.server.cookie_secret,
@@ -97,6 +99,7 @@ export async function createAppContext(config: HeadplaneConfig) {
     headscale,
     headscaleApiKey,
     agents,
+    rdpGateway,
     auth,
     oidc,
     hsLive,
@@ -144,6 +147,19 @@ function buildOidc(
       profilePictureSource: config.oidc.profile_picture_source,
       postLogoutRedirectUri: config.oidc.post_logout_redirect_uri,
     }),
+  );
+}
+
+function buildRdpGateway(config: HeadplaneConfig): Feature<RdpGatewayClient> {
+  const gw = config.rdp_gateway;
+  if (!gw) {
+    return disabled("RDP gateway is not configured");
+  }
+  if (gw.enabled === false) {
+    return disabled("RDP gateway is disabled in the configuration");
+  }
+  return enabled(
+    new RdpGatewayClient({ webhook_url: gw.webhook_url, webhook_token: gw.webhook_token }),
   );
 }
 

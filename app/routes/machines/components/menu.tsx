@@ -10,6 +10,7 @@ import { PopulatedNode } from "~/utils/node-info";
 import Delete from "../dialogs/delete";
 import Expire from "../dialogs/expire";
 import Move from "../dialogs/move";
+import RDPGateway from "../dialogs/rdp-gateway";
 import Rename from "../dialogs/rename";
 import Routes from "../dialogs/routes";
 import Tags from "../dialogs/tags";
@@ -23,9 +24,10 @@ interface MenuProps {
   existingTags?: string[];
   supportsNodeOwnerChange: boolean;
   agentEnabled?: boolean;
+  rdpGatewayEnabled?: boolean;
 }
 
-type Modal = "rename" | "expire" | "remove" | "routes" | "move" | "tags" | null;
+type Modal = "rename" | "expire" | "remove" | "routes" | "move" | "tags" | "rdp-gateway" | null;
 
 export default function MachineMenu({
   node,
@@ -36,11 +38,13 @@ export default function MachineMenu({
   existingTags,
   supportsNodeOwnerChange,
   agentEnabled,
+  rdpGatewayEnabled,
 }: MenuProps) {
   const [modal, setModal] = useState<Modal>(null);
   const supportsTailscaleSSH = agentEnabled && node.online && !node.expired;
   const isWindows = node.hostInfo?.OS?.toLowerCase() === "windows";
   const supportsRDP = agentEnabled && node.online && !node.expired && isWindows;
+  const supportsRDPGateway = rdpGatewayEnabled && node.online && !node.expired && isWindows;
 
   return (
     <div className="flex items-center justify-end gap-1.5 px-4">
@@ -76,6 +80,15 @@ export default function MachineMenu({
       {modal === "routes" && (
         <Routes
           isOpen={modal === "routes"}
+          node={node}
+          setIsOpen={(isOpen) => {
+            if (!isOpen) setModal(null);
+          }}
+        />
+      )}
+      {modal === "rdp-gateway" && supportsRDPGateway && (
+        <RDPGateway
+          isOpen={modal === "rdp-gateway"}
           node={node}
           setIsOpen={(isOpen) => {
             if (!isOpen) setModal(null);
@@ -202,6 +215,9 @@ export default function MachineMenu({
           <MenuItem onClick={() => setModal("tags")}>Edit ACL tags</MenuItem>
           {supportsNodeOwnerChange && (
             <MenuItem onClick={() => setModal("move")}>Change owner</MenuItem>
+          )}
+          {supportsRDPGateway && (
+            <MenuItem onClick={() => setModal("rdp-gateway")}>RDP Gateway</MenuItem>
           )}
           <MenuSeparator />
           <MenuItem variant="danger" disabled={node.expired} onClick={() => setModal("expire")}>

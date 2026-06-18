@@ -27,6 +27,7 @@ interface Props {
   magic?: string;
   isDisabled?: boolean;
   existingTags?: string[];
+  rdpGatewayEnabled?: boolean;
   supportsNodeOwnerChange: boolean;
 }
 
@@ -37,6 +38,7 @@ export default function MachineRow({
   magic,
   isDisabled,
   existingTags,
+  rdpGatewayEnabled,
   supportsNodeOwnerChange,
 }: Props) {
   const uiTags = useMemo(() => uiTagsForNode(node, isAgent), [node, isAgent]);
@@ -143,6 +145,7 @@ export default function MachineRow({
           isDisabled={isDisabled}
           magic={magic}
           node={node}
+          rdpGatewayEnabled={rdpGatewayEnabled}
           users={users}
           supportsNodeOwnerChange={supportsNodeOwnerChange}
         />

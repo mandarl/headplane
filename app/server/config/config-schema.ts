@@ -12,6 +12,7 @@ export const pathSupportedKeys = [
   "headscale.api_key",
   "oidc.client_secret",
   "oidc.headscale_api_key",
+  "rdp_gateway.webhook_token",
 ] as const;
 
 function normalizeStringArray(values: string[]): string[] {
@@ -168,6 +169,25 @@ const partialOidcConfig = type({
   strict_validation: type("unknown").narrow(deprecatedField()).optional(),
 });
 
+// Configuration for the RDP gateway webhook integration. When enabled,
+// Headplane will call `webhook_url` to open/close a temporary public
+// TCP relay for a tailnet Windows node. The webhook implements the
+// actual relay logic (e.g. socat + GCP firewall) and returns a
+// host:port the native RDP client can connect to.
+const rdpGatewayConfig = type({
+  enabled: "boolean = true",
+  // Full URL of the gateway webhook endpoint.
+  webhook_url: "string.url",
+  // Optional bearer token sent as `Authorization: Bearer <token>`.
+  webhook_token: "string?",
+});
+
+const partialRdpGatewayConfig = type({
+  enabled: "boolean?",
+  webhook_url: "string.url?",
+  webhook_token: "string?",
+});
+
 const agentConfig = type({
   enabled: "boolean",
   host_name: 'string = "headplane-agent"',
@@ -208,6 +228,7 @@ export const headplaneConfig = type({
   headscale: headscaleConfig,
   oidc: oidcConfig.optional(),
   integration: integrationConfig.optional(),
+  rdp_gateway: rdpGatewayConfig.optional(),
 }).onDeepUndeclaredKey("delete");
 
 export const partialHeadplaneConfig = type({
@@ -216,6 +237,7 @@ export const partialHeadplaneConfig = type({
   headscale: partialHeadscaleConfig.optional(),
   oidc: partialOidcConfig.optional(),
   integration: partialIntegrationConfig.optional(),
+  rdp_gateway: partialRdpGatewayConfig.optional(),
 });
 
 export type HeadplaneConfig = typeof headplaneConfig.infer;
