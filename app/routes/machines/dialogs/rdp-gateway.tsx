@@ -1,5 +1,5 @@
 import { Copy, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFetcher } from "react-router";
 
 import Button from "~/components/button";
@@ -33,6 +33,39 @@ const TIMEOUT_OPTIONS = [
   { label: "8 hours", mins: 480 },
 ] as const;
 
+function useCountdown(expiresAt: string | undefined): string | null {
+  const [remaining, setRemaining] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!expiresAt) {
+      setRemaining(null);
+      return;
+    }
+
+    function tick() {
+      const secs = Math.max(0, Math.floor((new Date(expiresAt!).getTime() - Date.now()) / 1000));
+      if (secs === 0) {
+        setRemaining("Expired");
+        return;
+      }
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      const parts =
+        h > 0
+          ? [h, String(m).padStart(2, "0"), String(s).padStart(2, "0")]
+          : [m, String(s).padStart(2, "0")];
+      setRemaining(parts.join(":"));
+    }
+
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+
+  return remaining;
+}
+
 export default function RDPGateway({ node, isOpen, setIsOpen }: RDPGatewayProps) {
   const fetcher = useFetcher<GatewayResult>();
   const [timeoutMins, setTimeoutMins] = useState(180);
@@ -46,6 +79,7 @@ export default function RDPGateway({ node, isOpen, setIsOpen }: RDPGatewayProps)
 
   // Only non-null when isActive is true; JSX uses it inside the isActive guard.
   const endpoint: string = isActive ? `${result!.host}:${result!.port}` : "";
+  const countdown = useCountdown(isActive ? result?.expires_at : undefined);
 
   function enable() {
     const form = new FormData();
@@ -104,12 +138,9 @@ export default function RDPGateway({ node, isOpen, setIsOpen }: RDPGatewayProps)
                 <Copy className="h-4 w-4" />
               </button>
             </div>
-            {result?.expires_at && (
+            {countdown && (
               <p className="mt-2 text-xs text-mist-500">
-                Auto-closes at{" "}
-                <span className="font-medium">
-                  {new Date(result.expires_at).toLocaleTimeString()}
-                </span>
+                Auto-closes in <span className="font-medium tabular-nums">{countdown}</span>
               </p>
             )}
           </div>
