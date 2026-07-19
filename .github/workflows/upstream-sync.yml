@@ -1,0 +1,118 @@
+name: Sync upstream
+
+# This fork's `main` carries a long-running series of custom features
+# directly on top of tale/headplane's history (WebSSH, Web RDP, the RDP
+# gateway, machine services, etc.) rather than a short patch series like
+# some of the user's other forks. Rebasing that series onto every upstream
+# update would rewrite dozens of commits and force-push over history other
+# tooling/branches may depend on, so this workflow is MERGE-based instead:
+#
+#   1. Fetch upstream (tale/headplane) main.
+#   2. If upstream hasn't moved since our last sync, do nothing.
+#   3. Otherwise, attempt `git merge upstream/main` into our main.
+#      - Clean merge: push directly to main. This intentionally triggers
+#        this repo's existing build.yaml (tests) and docker-publish.yml
+#        (new :latest image) workflows on the push - no separate build or
+#        release step needed here, unlike a from-scratch binary release.
+#      - Conflict: abort the merge (main is never left in a broken state
+#        and nothing with conflict markers is ever pushed), then push
+#        upstream's current tip as a plain branch named
+#        `upstream-sync-conflict-<date>` so it's available in this repo
+#        without the user needing to add the upstream remote themselves,
+#        and fail the job with resolution instructions. Actions on this
+#        repo can't open PRs (workflow default permissions only grant
+#        `contents: write`, and "Actions may create PRs" is off), so this
+#        is deliberately a plain branch push + a loud failure rather than
+#        an attempted PR.
+
+on:
+  schedule:
+    # Weekly, Monday 07:00 UTC - deliberately offset an hour from the
+    # mandarl/headscale sync-and-build.yml (06:00 UTC) so the two don't
+    # contend for the same runner window.
+    - cron: "0 7 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_REPO: https://github.com/tale/headplane.git
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream "$UPSTREAM_REPO"
+          git fetch upstream main
+
+      - name: Check if already up to date
+        id: check
+        run: |
+          set -euo pipefail
+          if git merge-base --is-ancestor upstream/main main; then
+            echo "main already contains upstream/main, nothing to sync."
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Attempt merge of upstream/main
+        id: merge
+        if: steps.check.outputs.up_to_date == 'false'
+        run: |
+          set -euo pipefail
+
+          if git merge --no-ff upstream/main \
+            -m "Merge upstream tale/headplane main ($(git rev-parse --short upstream/main)) into fork"; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "conflict=true" >> "$GITHUB_OUTPUT"
+          git merge --abort
+
+      - name: Push merged main
+        if: steps.check.outputs.up_to_date == 'false' && steps.merge.outputs.conflict == 'false'
+        run: git push origin main
+
+      - name: Push upstream tip as a conflict branch and fail
+        if: steps.check.outputs.up_to_date == 'false' && steps.merge.outputs.conflict == 'true'
+        run: |
+          set -euo pipefail
+          BRANCH="upstream-sync-conflict-$(date -u +%Y%m%d)"
+
+          git push origin "upstream/main:refs/heads/$BRANCH"
+
+          echo "::error::Merging upstream tale/headplane main into fork main hit a conflict. main was left untouched (no partial/conflicted state was pushed). Upstream's current tip was pushed here as branch '$BRANCH' so you can resolve locally:
+            git fetch origin
+            git checkout main
+            git merge origin/$BRANCH
+            # resolve conflicts, then:
+            git add -A && git commit
+            git push origin main"
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.up_to_date }}" = "true" ]; then
+            echo "### Upstream sync: already up to date" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.merge.outputs.conflict }}" = "true" ]; then
+            echo "### Upstream sync: CONFLICT - see job log for the resolution branch and commands" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Upstream sync: merged cleanly and pushed to main" >> "$GITHUB_STEP_SUMMARY"
+          fi
