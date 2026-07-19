@@ -2,6 +2,7 @@ import { data, redirect } from "react-router";
 
 import { isDataWithApiError } from "~/server/headscale/api/error-client";
 import { nodesResource } from "~/server/headscale/live-store";
+import { setServiceOverride } from "~/server/service-overrides";
 import { Capabilities } from "~/server/web/roles";
 
 import type { Route } from "./+types/machine";
@@ -192,6 +193,43 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
       await api.nodes.reassignUser(nodeId, user);
       await context.hsLive.refresh(nodesResource, api);
       return { message: "Machine reassigned" };
+    }
+
+    // Headplane-side override for a service's description shown on the
+    // machine detail page. This doesn't touch Headscale/Tailscale at all —
+    // it's purely local state layered on top of the read-only
+    // `Hostinfo.Services` data at render time (see ~/server/service-overrides).
+    case "update_service_description": {
+      const proto = formData.get("proto")?.toString();
+      const portRaw = formData.get("port")?.toString();
+      const description = formData.get("description")?.toString() ?? "";
+      if (!proto || !portRaw) {
+        throw data("Missing `proto` or `port` in the form data.", {
+          status: 400,
+        });
+      }
+
+      const port = Number.parseInt(portRaw, 10);
+      if (!Number.isFinite(port)) {
+        throw data("Invalid `port` in the form data.", {
+          status: 400,
+        });
+      }
+
+      const updatedBy =
+        principal.kind === "oidc"
+          ? (principal.profile.name ?? principal.profile.username ?? principal.user.subject)
+          : principal.displayName;
+
+      await setServiceOverride(context.db, {
+        hostId: node.nodeKey,
+        proto,
+        port,
+        description,
+        updatedBy,
+      });
+
+      return { message: description.trim() === "" ? "Description reset" : "Description updated" };
     }
 
     default:

@@ -30,6 +30,25 @@ export const users = sqliteTable("users", {
 export type HeadplaneUser = typeof users.$inferSelect;
 export type HeadplaneUserInsert = typeof users.$inferInsert;
 
+// Headplane-side override for the (often empty or unhelpful) auto-detected
+// description of a service in `HostInfo.Services`. Tailscale's Hostinfo is
+// read-only wire data from the client and gets fully overwritten on every
+// agent sync, so any user-provided label has to live here instead and get
+// layered on top at render time. Keyed by a synthetic id so we can upsert
+// with a single `onConflictDoUpdate` like `hostInfo` does below.
+export const serviceDescriptionOverrides = sqliteTable("service_description_overrides", {
+  id: text("id").primaryKey(), // `${host_id}:${proto}:${port}`
+  host_id: text("host_id").notNull(),
+  proto: text("proto").notNull(),
+  port: integer("port").notNull(),
+  description: text("description").notNull(),
+  updated_by: text("updated_by"),
+  updated_at: integer("updated_at", { mode: "timestamp" }).$default(() => new Date()),
+});
+
+export type ServiceDescriptionOverrideRecord = typeof serviceDescriptionOverrides.$inferSelect;
+export type ServiceDescriptionOverrideInsert = typeof serviceDescriptionOverrides.$inferInsert;
+
 export const authSessions = sqliteTable("auth_sessions", {
   id: text("id").primaryKey(),
   kind: text("kind").notNull(), // 'oidc' | 'api_key'
