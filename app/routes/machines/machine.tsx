@@ -1,4 +1,4 @@
-import { CheckCircle, CircleSlash, Globe, Info, UserCircle } from "lucide-react";
+import { CheckCircle, CircleSlash, Globe, Info, Pencil, UserCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { data } from "react-router";
 
@@ -10,6 +10,7 @@ import Link from "~/components/link";
 import StatusCircle from "~/components/status-circle";
 import Tooltip from "~/components/tooltip";
 import { nodesResource, usersResource } from "~/server/headscale/live-store";
+import { getServiceOverrides } from "~/server/service-overrides";
 import cn from "~/utils/cn";
 import {
   getOSInfo,
@@ -24,6 +25,7 @@ import type { Route } from "./+types/machine";
 import { mapTagsToComponents, uiTagsForNode } from "./components/machine-row";
 import MenuOptions from "./components/menu";
 import Routes from "./dialogs/routes";
+import ServiceDescription from "./dialogs/service-description";
 import { machineAction } from "./machine-actions";
 
 export async function loader({ request, params, context }: Route.LoaderArgs) {
@@ -60,6 +62,7 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
   const tags = [...node.tags].toSorted();
   const supportsNodeOwnerChange = !context.headscale.capabilities.nodeOwnerIsImmutable;
   const agentSync = agents?.lastSync();
+  const serviceOverrides = await getServiceOverrides(context.db, enhancedNode.nodeKey);
 
   return {
     agent: agentSync
@@ -73,6 +76,7 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     magic,
     node: enhancedNode,
     rdpGatewayEnabled: context.rdpGateway.state === "enabled",
+    serviceOverrides,
     stats: lookup?.[enhancedNode.nodeKey],
     supportsNodeOwnerChange: supportsNodeOwnerChange,
     tags,
@@ -90,12 +94,18 @@ export default function Page({
     magic,
     agent,
     stats,
+    serviceOverrides,
     existingTags,
     supportsNodeOwnerChange,
     rdpGatewayEnabled,
   },
 }: Route.ComponentProps) {
   const [showRouting, setShowRouting] = useState(false);
+  const [editingService, setEditingService] = useState<{
+    proto: string;
+    port: number;
+    description: string;
+  } | null>(null);
 
   const uiTags = useMemo(() => {
     const tags = uiTagsForNode(node, agent?.nodeKey === node.nodeKey);
@@ -106,10 +116,25 @@ export default function Page({
   // links work the same way a user manually browsing would expect, falling
   // back to the tailnet IPv4 address when MagicDNS is disabled.
   const host = magic ? `${node.givenName}.${magic}` : getIpv4Address(node.ipAddresses);
-  const services = useMemo(
-    () => (stats?.Services ?? []).toSorted((a, b) => a.Port - b.Port),
-    [stats],
-  );
+
+  // Merge Tailscale's auto-detected services with any Headplane-side
+  // description overrides (see ~/server/service-overrides). The override,
+  // when present, always wins over the auto-detected/well-known-port label.
+  const services = useMemo(() => {
+    return (stats?.Services ?? [])
+      .toSorted((a, b) => a.Port - b.Port)
+      .map((service) => {
+        const override = serviceOverrides[`${service.Proto}:${service.Port}`];
+        return {
+          Proto: service.Proto,
+          Port: service.Port,
+          description: override?.description ?? getServiceDescription(service),
+          isOverridden: override !== undefined,
+          updatedBy: override?.updatedBy ?? null,
+          updatedAt: override?.updatedAt ?? null,
+        };
+      });
+  }, [stats, serviceOverrides]);
 
   return (
     <div>
@@ -165,6 +190,18 @@ export default function Page({
         </div>
       </div>
       <Routes isOpen={showRouting} node={node} setIsOpen={setShowRouting} />
+      {editingService ? (
+        <ServiceDescription
+          currentDescription={editingService.description}
+          isOpen={editingService !== null}
+          machine={node}
+          port={editingService.port}
+          proto={editingService.proto}
+          setIsOpen={(isOpen) => {
+            if (!isOpen) setEditingService(null);
+          }}
+        />
+      ) : undefined}
       <h2 className="mt-8 text-xl font-medium">Subnets & Routing</h2>
       <div className="mb-4 flex items-center justify-between">
         <p>
@@ -293,14 +330,52 @@ export default function Page({
             {services.map((service) => (
               <li
                 key={`${service.Proto}-${service.Port}`}
-                className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
+                className="group/service flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <Chip className="uppercase" text={service.Proto} />
                   <span className="font-mono">{service.Port}</span>
                   <span className="truncate text-mist-600 dark:text-mist-300">
-                    {getServiceDescription(service)}
+                    {service.description}
                   </span>
+                  {service.isOverridden ? (
+                    <Tooltip
+                      content={
+                        service.updatedBy
+                          ? `Manually edited by ${service.updatedBy}${
+                              service.updatedAt
+                                ? ` on ${new Date(service.updatedAt).toLocaleString()}`
+                                : ""
+                            }`
+                          : "Manually edited, overrides the auto-detected description"
+                      }
+                    >
+                      <Chip
+                        className="text-indigo-700 dark:text-indigo-300"
+                        leftIcon={<Pencil className="h-3 w-3" />}
+                        text="Edited"
+                      />
+                    </Tooltip>
+                  ) : undefined}
+                  <button
+                    aria-label={`Edit description for ${service.Proto}/${service.Port}`}
+                    className={cn(
+                      "rounded p-1 text-mist-500 opacity-0 transition-opacity",
+                      "hover:bg-mist-100 hover:text-mist-800 focus-visible:opacity-100",
+                      "group-hover/service:opacity-100",
+                      "dark:text-mist-400 dark:hover:bg-mist-800 dark:hover:text-mist-100",
+                    )}
+                    onClick={() =>
+                      setEditingService({
+                        proto: service.Proto,
+                        port: service.Port,
+                        description: service.description,
+                      })
+                    }
+                    type="button"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
                 </div>
                 {isLinkableService(service) && host !== "—" ? (
                   <span className="flex items-center gap-x-3">
