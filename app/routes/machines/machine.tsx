@@ -1,4 +1,4 @@
-import { CheckCircle, CircleSlash, Info, UserCircle } from "lucide-react";
+import { CheckCircle, CircleSlash, Globe, Info, UserCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { data } from "react-router";
 
@@ -11,7 +11,12 @@ import StatusCircle from "~/components/status-circle";
 import Tooltip from "~/components/tooltip";
 import { nodesResource, usersResource } from "~/server/headscale/live-store";
 import cn from "~/utils/cn";
-import { getOSInfo, getTSVersion } from "~/utils/host-info";
+import {
+  getOSInfo,
+  getServiceDescription,
+  getTSVersion,
+  isLinkableService,
+} from "~/utils/host-info";
 import { isNoExpiry, mapNodes, sortNodeTags } from "~/utils/node-info";
 import { getUserDisplayName } from "~/utils/user";
 
@@ -96,6 +101,15 @@ export default function Page({
     const tags = uiTagsForNode(node, agent?.nodeKey === node.nodeKey);
     return tags;
   }, [node, agent]);
+
+  // Prefer the MagicDNS name (matches the "Full domain" attribute below) so
+  // links work the same way a user manually browsing would expect, falling
+  // back to the tailnet IPv4 address when MagicDNS is disabled.
+  const host = magic ? `${node.givenName}.${magic}` : getIpv4Address(node.ipAddresses);
+  const services = useMemo(
+    () => (stats?.Services ?? []).toSorted((a, b) => a.Port - b.Port),
+    [stats],
+  );
 
   return (
     <div>
@@ -250,6 +264,58 @@ export default function Page({
             Edit
           </Button>
         </div>
+      </Card>
+      <h2 className="mt-8 text-xl font-medium">Advertised Services</h2>
+      <p className="mb-4">
+        Open ports that Tailscale detected on this machine, with a quick link to each one. Note that{" "}
+        <Link external styled to="https://tailscale.com/kb/1242/tailscale-serve">
+          <code>tailscale serve</code>
+        </Link>{" "}
+        routing rules are kept on the node itself and aren’t exposed to Headplane, so this list
+        reflects open ports rather than serve/Funnel path mappings.
+        {stats?.IngressEnabled ? (
+          <Chip
+            className="ml-2 text-orange-700 dark:text-orange-300"
+            leftIcon={<Globe className="h-3.5 w-3.5" />}
+            text="Funnel enabled — publicly reachable"
+          />
+        ) : undefined}
+      </p>
+      <Card className="mr-2 mb-8 w-full max-w-full text-sm" variant="flat">
+        {!stats ? (
+          <span className="opacity-50">
+            Requires the Headplane Agent to be enabled to detect services on this machine.
+          </span>
+        ) : services.length === 0 ? (
+          <span className="opacity-50">No open ports detected on this machine.</span>
+        ) : (
+          <ul className="divide-y divide-mist-100 dark:divide-mist-800">
+            {services.map((service) => (
+              <li
+                key={`${service.Proto}-${service.Port}`}
+                className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <Chip className="uppercase" text={service.Proto} />
+                  <span className="font-mono">{service.Port}</span>
+                  <span className="truncate text-mist-600 dark:text-mist-300">
+                    {getServiceDescription(service)}
+                  </span>
+                </div>
+                {isLinkableService(service) && host !== "—" ? (
+                  <span className="flex items-center gap-x-3">
+                    <Link external styled to={`http://${host}:${service.Port}`}>
+                      HTTP
+                    </Link>
+                    <Link external styled to={`https://${host}:${service.Port}`}>
+                      HTTPS
+                    </Link>
+                  </span>
+                ) : undefined}
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
       <h2 className="text-xl font-medium">Machine Details</h2>
       <p className="mb-4">
