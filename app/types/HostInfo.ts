@@ -77,6 +77,16 @@ export interface HostInfo {
   /** Indicates the node wants the option to receive ingress connections */
   WireIngress?: boolean;
 
+  /**
+   * Indicates the node has at least one Funnel endpoint enabled, i.e. it is
+   * exposing something to the public internet via `tailscale funnel`. Note
+   * that this is only a boolean flag — the actual `tailscale serve`/`funnel`
+   * path-to-target mappings are kept in the node's local `ipn.ServeConfig`
+   * state and are not broadcast to the control plane, so they are not
+   * observable here (or anywhere outside of the node itself).
+   */
+  IngressEnabled?: boolean;
+
   /** Indicates node has opted-in to admin-console-driven remote updates */
   AllowsUpdate?: boolean;
 
@@ -136,7 +146,7 @@ export interface HostInfo {
 }
 
 /** Represents a network service advertised by a node */
-interface Service {
+export interface Service {
   /** Protocol type (e.g., "tcp", "udp", "peerapi4") */
   Proto: string;
 
