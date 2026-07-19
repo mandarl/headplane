@@ -23,6 +23,7 @@ export interface OidcConfig {
   usePkce?: boolean;
   scope?: string;
   subjectClaims?: string[];
+  roleClaim?: string;
   allowWeakRsaKeys?: boolean;
   extraParams?: Record<string, string>;
   profilePictureSource?: "oidc" | "gravatar";
@@ -51,6 +52,7 @@ export interface OidcIdentity {
   username: string;
   email?: string;
   picture?: string;
+  role?: string;
   idToken?: string;
 }
 
@@ -71,6 +73,13 @@ export interface OidcError {
   code: OidcErrorCode;
   message: string;
   hint?: string;
+}
+
+export function logOidcError(context: string, error: OidcError): void {
+  log.error("auth", "%s [%s]: %s", context, error.code, error.message);
+  if (error.hint) {
+    log.error("auth", "Hint: %s", error.hint);
+  }
 }
 
 type JwksResolver = (
@@ -106,6 +115,7 @@ interface OidcClaims extends JWTPayload {
   preferred_username?: string;
   email?: string;
   picture?: string;
+  [claim: string]: unknown;
 }
 
 interface TokenResponse {
@@ -451,14 +461,15 @@ export function createOidcService(initialConfig: OidcConfig): OidcService {
     body: URLSearchParams,
     method: "client_secret_basic" | "client_secret_post",
   ): Promise<Result<TokenResponse, OidcError>> {
+    const requestBody = new URLSearchParams(body);
     const headers: Record<string, string> = {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
     };
 
     if (method === "client_secret_post") {
-      body.set("client_id", config.clientId);
-      body.set("client_secret", config.clientSecret);
+      requestBody.set("client_id", config.clientId);
+      requestBody.set("client_secret", config.clientSecret);
     } else {
       const credentials = btoa(
         `${encodeURIComponent(config.clientId)}:${encodeURIComponent(config.clientSecret)}`,
@@ -472,7 +483,7 @@ export function createOidcService(initialConfig: OidcConfig): OidcService {
       response = await fetch(tokenEndpoint, {
         method: "POST",
         headers,
-        body: body.toString(),
+        body: requestBody.toString(),
         signal: AbortSignal.timeout(10_000),
       });
     } catch (cause) {
@@ -695,7 +706,11 @@ export function createOidcService(initialConfig: OidcConfig): OidcService {
     const needsEnrichment =
       !claims.name && !claims.email && !claims.picture && !!resolveSubject(claims);
     const needsSubjectEnrichment = !resolveSubject(claims);
-    if ((!needsEnrichment && !needsSubjectEnrichment) || !ep.userinfoEndpoint) {
+    const needsRoleEnrichment = !!config.roleClaim && claims[config.roleClaim] === undefined;
+    if (
+      (!needsEnrichment && !needsSubjectEnrichment && !needsRoleEnrichment) ||
+      !ep.userinfoEndpoint
+    ) {
       return claims;
     }
 
@@ -714,6 +729,9 @@ export function createOidcService(initialConfig: OidcConfig): OidcService {
       }
 
       const userInfo = (await response.json()) as Record<string, unknown>;
+      const roleClaimValue = config.roleClaim
+        ? (claims[config.roleClaim] ?? userInfo[config.roleClaim])
+        : undefined;
       const subjectClaimValues = Object.fromEntries(
         getSubjectClaimOrder()
           .filter((claim) => claim !== "sub")
@@ -725,6 +743,9 @@ export function createOidcService(initialConfig: OidcConfig): OidcService {
       return {
         ...claims,
         ...subjectClaimValues,
+        ...(config.roleClaim && roleClaimValue !== undefined
+          ? { [config.roleClaim]: roleClaimValue }
+          : {}),
         name: claims.name ?? (userInfo.name as string | undefined),
         given_name: claims.given_name ?? (userInfo.given_name as string | undefined),
         family_name: claims.family_name ?? (userInfo.family_name as string | undefined),
@@ -776,6 +797,7 @@ export function createOidcService(initialConfig: OidcConfig): OidcService {
       username,
       email: claims.email,
       picture,
+      role: config.roleClaim ? resolveRoleClaim(claims, config.roleClaim) : undefined,
       idToken,
     };
   }
@@ -824,6 +846,24 @@ export function createOidcService(initialConfig: OidcConfig): OidcService {
       const value = readClaimAsString(claims, claim);
       if (value) {
         return value;
+      }
+    }
+
+    return undefined;
+  }
+
+  function resolveRoleClaim(claims: OidcClaims, claimName: string): string | undefined {
+    const value = claims[claimName];
+    if (typeof value === "string") {
+      return value.trim() || undefined;
+    }
+
+    if (Array.isArray(value)) {
+      const roles = new Set(value.filter((v): v is string => typeof v === "string"));
+      for (const role of ["admin", "network_admin", "it_admin", "auditor", "viewer", "member"]) {
+        if (roles.has(role)) {
+          return role;
+        }
       }
     }
 

@@ -7,10 +7,21 @@ import Input from "~/components/input";
 import Link from "~/components/link";
 import PageError from "~/components/page-error";
 import Tooltip from "~/components/tooltip";
+import {
+  agentsContext,
+  appConfigContext,
+  authContext,
+  headscaleConfigContext,
+  headscaleContext,
+  headscaleLiveStoreContext,
+  rdpGatewayContext,
+  requestApiContext,
+} from "~/server/context";
 import { nodesResource, usersResource } from "~/server/headscale/live-store";
+import { isUserPrincipal } from "~/server/web/auth";
 import { Capabilities } from "~/server/web/roles";
 import cn from "~/utils/cn";
-import { mapNodes, sortNodeTags, type PopulatedNode } from "~/utils/node-info";
+import { mapNodes, sortAssignableTags, type PopulatedNode } from "~/utils/node-info";
 
 import type { Route } from "./+types/overview";
 import { MachineFilters } from "./components/machine-filters";
@@ -20,35 +31,44 @@ import { useMachineFilterParams } from "./hooks/use-machine-filter-params";
 import { machineAction } from "./machine-actions";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const principal = await context.auth.require(request);
+  const agentsFeature = context.get(agentsContext);
+  const auth = context.get(authContext);
+  const config = context.get(appConfigContext);
+  const getRequestApi = context.get(requestApiContext);
+  const headscale = context.get(headscaleContext);
+  const headscaleConfig = context.get(headscaleConfigContext);
+  const headscaleLiveStore = context.get(headscaleLiveStoreContext);
+  const rdpGateway = context.get(rdpGatewayContext);
 
-  if (!context.auth.can(principal, Capabilities.read_machines)) {
+  const principal = await auth.require(request);
+
+  if (!auth.can(principal, Capabilities.read_machines)) {
     throw new Error(
       "You do not have permission to view this page. Please contact your administrator.",
     );
   }
 
-  const writablePermission = context.auth.can(principal, Capabilities.write_machines);
+  const writablePermission = auth.can(principal, Capabilities.write_machines);
 
-  const { api } = await context.apiForRequest(request);
+  const { api } = await getRequestApi(request);
   const [nodesSnap, usersSnap] = await Promise.all([
-    context.hsLive.get(nodesResource, api),
-    context.hsLive.get(usersResource, api),
+    headscaleLiveStore.get(nodesResource, api),
+    headscaleLiveStore.get(usersResource, api),
   ]);
   const nodes = nodesSnap.data;
   const users = usersSnap.data;
 
-  let magic: string | undefined;
-  if (context.hs.readable()) {
-    if (context.hs.c?.dns.magic_dns) {
-      magic = context.hs.c.dns.base_domain;
-    }
-  }
+  const magic = headscaleConfig.getMagicDNSBaseDomain();
 
-  const agents = context.agents.state === "enabled" ? context.agents.value : undefined;
-  const stats = await agents?.lookup(nodes.map((node) => node.nodeKey));
+  const agents = agentsFeature.state === "enabled" ? agentsFeature.value : undefined;
+  const [statsResult, policyResult] = await Promise.allSettled([
+    agents?.lookup(nodes.map((node) => node.nodeKey)),
+    api.policy.get(),
+  ]);
+  const stats = statsResult.status === "fulfilled" ? statsResult.value : undefined;
+  const policy = policyResult.status === "fulfilled" ? policyResult.value.policy : undefined;
   const populatedNodes = mapNodes(nodes, stats);
-  const supportsNodeOwnerChange = !context.headscale.capabilities.nodeOwnerIsImmutable;
+  const supportsNodeOwnerChange = !headscale.capabilities.nodeOwnerIsImmutable;
   const agentSync = agents?.lastSync();
 
   return {
@@ -59,14 +79,15 @@ export async function loader({ request, context }: Route.LoaderArgs) {
           nodeKey: agents?.agentNodeKey(),
         }
       : undefined,
-    headscaleUserId: principal.kind === "oidc" ? principal.user.headscaleUserId : undefined,
+    headscaleUserId: isUserPrincipal(principal) ? principal.user.headscaleUserId : undefined,
+    existingTags: sortAssignableTags(nodes, policy),
     magic,
     nodes,
     populatedNodes,
-    preAuth: context.auth.can(principal, Capabilities.generate_authkeys),
-    publicServer: context.config.headscale.public_url,
-    rdpGatewayEnabled: context.rdpGateway.state === "enabled",
-    server: context.config.headscale.url,
+    preAuth: auth.can(principal, Capabilities.generate_authkeys),
+    publicServer: config.headscale.public_url,
+    rdpGatewayEnabled: rdpGateway.state === "enabled",
+    server: config.headscale.url,
     supportsNodeOwnerChange: supportsNodeOwnerChange,
     users,
     writable: writablePermission,
@@ -424,7 +445,7 @@ export default function Page({ loaderData }: Route.ComponentProps) {
             ) : (
               filteredAndSortedNodes.map((node) => (
                 <MachineRow
-                  existingTags={sortNodeTags(loaderData.nodes)}
+                  existingTags={loaderData.existingTags}
                   isAgent={
                     loaderData.agent !== undefined
                       ? node.nodeKey === loaderData.agent.nodeKey

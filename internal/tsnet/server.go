@@ -52,6 +52,7 @@ func (s *TSAgent) Connect() {
 	log := util.GetLogger()
 
 	// Waits until the agent is up and running.
+	log.Info("Connecting to Tailnet at %s as %s", s.ControlURL, s.Hostname)
 	status, err := s.Up(context.Background())
 	if err != nil {
 		log.Fatal("Failed to connect to Tailnet: %s", err)

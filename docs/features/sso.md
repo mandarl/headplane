@@ -17,6 +17,9 @@ Identity Provider (IdP) using the OpenID Connect (OIDC) protocol. When enabled,
 users sign in through your IdP and Headplane automatically links them to their
 Headscale identity, assigns a role, and manages their session.
 
+If your reverse proxy already performs authentication and can pass trusted user
+headers to Headplane, see [Proxy Authentication](./proxy-auth.md) instead.
+
 ## Getting Started
 
 ### Requirements
@@ -71,6 +74,8 @@ oidc:
   # userinfo_endpoint: ""
   # scope: "openid email profile"
   # subject_claims: ["open_id", "email"]
+  # default_role: "member"
+  # role_claim: "headplane_role"
   # allow_weak_rsa_keys: false
   # extra_params:
   #  foo: "bar"
@@ -222,6 +227,42 @@ The very first user to sign in via OIDC is automatically assigned the **Owner**
 role. All subsequent users are assigned the **Member** role (no access) by
 default. An owner or admin must then assign them an appropriate role through
 the Users page.
+
+### Automatic Role Assignment
+
+You can change the role assigned to newly created OIDC users with
+`oidc.default_role`:
+
+```yaml
+oidc:
+  # Valid values: admin, network_admin, it_admin, auditor, viewer, member
+  default_role: "viewer"
+```
+
+This is useful when Headscale already restricts who can authenticate by domain,
+group, or user. For example, if Headscale only allows `@example.com` users to
+sign in and all of those users should be able to view Headplane, set
+`default_role: "viewer"`.
+
+For per-user roles from your IdP, configure `oidc.role_claim` with the OIDC
+claim that contains a Headplane role:
+
+```yaml
+oidc:
+  role_claim: "headplane_role"
+```
+
+The claim may be a string, such as `"admin"`, or an array containing one of the
+valid roles. This lets providers such as Keycloak map groups or client roles to
+a final Headplane role before login. When both `role_claim` and `default_role`
+are configured, a valid role claim takes precedence for new users.
+
+For users that already exist in Headplane, a valid `role_claim` is synced on
+each OIDC login. If their IdP groups or client roles start matching a different
+Headplane role, their Headplane permissions are updated at their next sign-in.
+`default_role` remains a creation-time fallback only and does not overwrite
+existing roles. The **Owner** role is reserved for the first-login bootstrap and
+cannot be granted or overwritten by `default_role` or `role_claim`.
 
 ### API Key Sessions
 

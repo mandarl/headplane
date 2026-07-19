@@ -18,7 +18,12 @@ const HEADPLANE_THEME: GhosttyTheme = {
   raw: {},
 };
 
-function createSSHTransport(ssh: HeadplaneSSH, ipAddress: string, username: string, password?: string): PtyTransport {
+function createSSHTransport(
+  ssh: HeadplaneSSH,
+  ipAddress: string,
+  username: string,
+  password?: string,
+): PtyTransport {
   let session: TunnelSession | null = null;
 
   return {

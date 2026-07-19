@@ -36,6 +36,14 @@ export interface Capabilities {
    * 0.28.0+.
    */
   readonly nodeOwnerIsImmutable: boolean;
+
+  /**
+   * The `POST /api/v1/node/register` endpoint expects the full
+   * `hskey-authreq-<id>` AuthID as the `key` parameter. Pre-0.29
+   * Headscale expected the raw 24-character registration ID without
+   * the `hskey-authreq-` prefix. Introduced in 0.29.0.
+   */
+  readonly registerKeyIncludesAuthReqPrefix: boolean;
 }
 
 export function capabilitiesFor(version: ServerVersion): Capabilities {
@@ -43,5 +51,6 @@ export function capabilitiesFor(version: ServerVersion): Capabilities {
     preAuthKeysHaveStableIds: gte(version, "0.28.0"),
     nodeTagsAreFlat: gte(version, "0.28.0"),
     nodeOwnerIsImmutable: gte(version, "0.28.0"),
+    registerKeyIncludesAuthReqPrefix: gte(version, "0.29.0"),
   };
 }

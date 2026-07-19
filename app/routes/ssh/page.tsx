@@ -1,10 +1,22 @@
 import { Loader2, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
-import { data, isRouteErrorResponse, useLocation, type ShouldRevalidateFunction } from "react-router";
+import {
+  data,
+  isRouteErrorResponse,
+  useLocation,
+  type ShouldRevalidateFunction,
+} from "react-router";
 
 import Button from "~/components/button";
 import Card from "~/components/card";
 import Code from "~/components/code";
+import StatusBanner from "~/components/status-banner";
+import {
+  agentsContext,
+  appConfigContext,
+  headscaleContext,
+  requestApiContext,
+} from "~/server/context";
 import { findHeadscaleUserBySubject } from "~/server/web/headscale-identity";
 
 import type { Route } from "./+types/page";
@@ -16,6 +28,7 @@ import { loadHeadplaneWASM } from "./wasm.client";
 
 const WASM_MODULE_URL = `${__PREFIX__}/hp_ssh.wasm`;
 const WASM_HELPER_URL = `${__PREFIX__}/wasm_exec.js`;
+const SSH_PREAUTH_KEY_TTL_MS = 10 * 60 * 1000;
 
 export const shouldRevalidate: ShouldRevalidateFunction = ({ currentUrl, nextUrl }) => {
   // Only revalidate when transitioning from no-user to user (UserPrompt → SSHConsole).
@@ -24,8 +37,14 @@ export const shouldRevalidate: ShouldRevalidateFunction = ({ currentUrl, nextUrl
   return !currentUrl.searchParams.has("user") && nextUrl.searchParams.has("user");
 };
 
-export async function loader({ request, params, context }: Route.LoaderArgs) {
-  const origin = new URL(request.url).origin;
+export async function loader({ request, params, context, url }: Route.LoaderArgs) {
+  const agents = context.get(agentsContext);
+  const config = context.get(appConfigContext);
+  const headscale = context.get(headscaleContext);
+  const getRequestApi = context.get(requestApiContext);
+  const compatibilityWarning = getBrowserSSHCompatibilityWarning(headscale.version);
+
+  const origin = url.origin;
   const assets = [WASM_HELPER_URL, WASM_MODULE_URL];
   const missing: string[] = [];
 
@@ -40,14 +59,17 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     throw data(sshErrors.wasm_missing, 405);
   }
 
-  if (context.agents.state !== "enabled") {
+  if (agents.state !== "enabled") {
     throw data(sshErrors.agent_required, 400);
   }
 
-  const { principal, api } = await context.apiForRequest(request);
+  const { principal, api } = await getRequestApi(request);
+  if (principal.kind === "api_key") {
+    throw data(sshErrors.oidc_required, 403);
+  }
 
   const hostname = params.id;
-  const username = new URL(request.url).searchParams.get("user") || undefined;
+  const username = url.searchParams.get("user") || undefined;
 
   const nodes = await api.nodes.list();
   const node = nodes.find((n) => n.givenName === hostname);
@@ -58,17 +80,31 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
   const isWindows = node.hostInfo?.OS?.toLowerCase() === "windows";
 
   if (!node.online) {
-    return { hostname, username, offline: true, node: undefined, isWindows };
+    return {
+      hostname,
+      username,
+      offline: true,
+      node: undefined,
+      isWindows,
+      compatibilityWarning,
+    };
   }
 
   if (!username) {
-    return { hostname, username: undefined, offline: false, node: undefined, isWindows };
+    return {
+      hostname,
+      username: undefined,
+      offline: false,
+      node: undefined,
+      isWindows,
+      compatibilityWarning,
+    };
   }
 
   // The user must exist within Headscale to generate a pre-auth key
   const users = await api.users.list();
-  const hsUser = principal.kind === "api_key"
-    ? users[0]
+  const hsUser = principal.user.headscaleUserId
+    ? users.find((u) => u.id === principal.user.headscaleUserId)
     : findHeadscaleUserBySubject(users, principal.user.subject, principal.profile.email);
 
   if (!hsUser) {
@@ -79,11 +115,11 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     user: hsUser.id,
     ephemeral: true,
     reusable: false,
-    expiration: new Date(Date.now() + 5 * 60 * 1000), // 5 minute expiry (wasm download can be slow)
+    expiration: new Date(Date.now() + SSH_PREAUTH_KEY_TTL_MS),
     aclTags: null,
   });
 
-  const controlURL = context.config.headscale.public_url ?? context.config.headscale.url;
+  const controlURL = config.headscale.public_url ?? config.headscale.url;
   return {
     hostname,
     username,
@@ -95,7 +131,22 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
       preAuthKey: preAuthKey.key,
       ephemeralHostname: generateHostname(username),
     },
+    compatibilityWarning,
   };
+}
+
+function getBrowserSSHCompatibilityWarning(version: {
+  unknown: boolean;
+  major: number;
+  minor: number;
+  patch: number;
+  raw: string;
+}) {
+  if (version.unknown) return null;
+  if (version.major === 0 && version.minor === 29 && version.patch < 2) {
+    return { version: version.raw };
+  }
+  return null;
 }
 
 function generateHostname(username: string) {
@@ -114,34 +165,68 @@ export const links: Route.LinksFunction = () => [
 ];
 
 export default function Page({ loaderData }: Route.ComponentProps) {
-  const { hostname, username, offline, node, isWindows } = loaderData;
+  const { hostname, username, offline, node, isWindows, compatibilityWarning } = loaderData;
   const location = useLocation();
   const password: string | undefined = (location.state as { password?: string } | null)?.password;
 
   if (offline) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-black">
-        <Card className="w-screen" variant="flat">
-          <div className="flex items-center justify-between gap-4">
-            <Card.Title>Node Offline</Card.Title>
-            <WifiOff className="mb-2 h-6 w-6 text-red-500" />
-          </div>
-          <Card.Text>
-            <Code>{hostname}</Code> is not currently connected to the Tailnet.
-          </Card.Text>
-          <Button className="mt-8 w-full" onClick={() => window.location.reload()}>
-            Retry Connection
-          </Button>
-        </Card>
-      </div>
+      <>
+        <BrowserSSHCompatibilityBanner warning={compatibilityWarning} />
+        <div className="flex h-screen w-screen items-center justify-center bg-black">
+          <Card className="w-screen" variant="flat">
+            <div className="flex items-center justify-between gap-4">
+              <Card.Title>Node Offline</Card.Title>
+              <WifiOff className="mb-2 h-6 w-6 text-red-500" />
+            </div>
+            <Card.Text>
+              <Code>{hostname}</Code> is not currently connected to the Tailnet.
+            </Card.Text>
+            <Button className="mt-8 w-full" onClick={() => window.location.reload()}>
+              Retry Connection
+            </Button>
+          </Card>
+        </div>
+      </>
     );
   }
 
   if (!username || !node) {
-    return <UserPrompt hostname={hostname} isWindows={isWindows} />;
+    return (
+      <>
+        <BrowserSSHCompatibilityBanner warning={compatibilityWarning} />
+        <UserPrompt hostname={hostname} isWindows={isWindows} />
+      </>
+    );
   }
 
-  return <SSHConsole hostname={hostname} username={username} password={password} node={node} />;
+  return (
+    <>
+      <BrowserSSHCompatibilityBanner warning={compatibilityWarning} />
+      <SSHConsole hostname={hostname} username={username} password={password} node={node} />
+    </>
+  );
+}
+
+function BrowserSSHCompatibilityBanner({
+  warning,
+}: {
+  warning: { version: string } | null | undefined;
+}) {
+  if (!warning) return null;
+
+  return (
+    <div className="fixed inset-x-4 top-4 z-[60] mx-auto max-w-2xl">
+      <StatusBanner
+        variant="warning"
+        title={`Browser SSH is broken on Headscale ${warning.version}`}
+      >
+        Headscale 0.29 beta releases through 0.29.1 reject Tailscale's browser/WASM{" "}
+        <Code>/ts2021</Code> WebSocket request with <Code>405 Method Not Allowed</Code>. Upgrade
+        Headscale to 0.29.2 or newer, or use Headscale 0.28.x.
+      </StatusBanner>
+    </div>
+  );
 }
 
 function SSHConsole({
@@ -182,7 +267,12 @@ function SSHConsole({
             setSsh(instance);
           }
         },
-        onError: (msg) => console.error("[ssh] IPN error:", msg),
+        onError: (msg) => {
+          console.error("[ssh] IPN error:", msg);
+          if (!cancelled) {
+            setStatus(`Failed to join Tailnet: ${msg}`);
+          }
+        },
       });
 
       console.log("[ssh] IPN instance created", instance);

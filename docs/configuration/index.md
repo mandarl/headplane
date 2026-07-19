@@ -58,8 +58,8 @@ The following configuration options in Headplane are treated as secret paths:
     - _Note:_ Either `cookie_secret` or `cookie_secret_path` must be provided for web session security.
 
 - **Headscale Connection Settings (`headscale.*`):**
-  - `api_key_path` (Headscale API key for server-side operations like OIDC and agent sync)
-    - _Note:_ Either `api_key` or `api_key_path` must be provided when using OIDC or the agent.
+  - `api_key_path` (Headscale API key for server-side operations like OIDC, proxy authentication, and agent sync)
+    - _Note:_ Either `api_key` or `api_key_path` must be provided when using OIDC, proxy authentication, or the agent.
   - `tls_cert_path` (custom TLS certificate for connecting to Headscale)
     - _Note:_ This is treated as a regular path, not a secret path, so it will not have its content loaded.
 
@@ -81,6 +81,10 @@ The path-based secret loading mechanism also works with environment variables. F
 - `HEADPLANE_SERVER__COOKIE_SECRET_PATH=${CREDENTIALS_DIRECTORY}/cookie_secret` will use environment variable interpolation in the path
 
 ## Debugging
+
+Headplane writes server logs as newline-delimited JSON using Pino. Each entry
+includes a timestamp, level, component, and message (`msg`) so log aggregation
+tools can filter and index it directly.
 
 To enable debug logging, set the **`HEADPLANE_DEBUG_LOG=true`** environment variable.
 This will enable all debug logs for Headplane, which could fill up log space very quickly.

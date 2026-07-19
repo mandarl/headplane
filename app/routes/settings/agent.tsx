@@ -6,36 +6,48 @@ import Notice from "~/components/notice";
 import StatusCircle from "~/components/status-circle";
 import Text from "~/components/text";
 import Title from "~/components/title";
+import { agentsContext, authContext } from "~/server/context";
 import { formatTimeDelta } from "~/utils/time";
 
 import type { Route } from "./+types/agent";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
-  await context.auth.require(request);
+  const agents = context.get(agentsContext);
+  const auth = context.get(authContext);
 
-  if (context.agents.state !== "enabled") {
-    return { enabled: false as const, reason: context.agents.reason };
+  await auth.require(request);
+
+  if (agents.state !== "enabled") {
+    return { enabled: false as const, reason: agents.reason };
   }
 
-  const sync = context.agents.value.lastSync();
+  const sync = agents.value.lastSync();
   return {
     enabled: true as const,
     syncedAt: sync.syncedAt?.toISOString() ?? null,
     nodeCount: sync.nodeCount,
     error: sync.error,
+    authUrl: sync.authUrl,
   };
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
-  await context.auth.require(request);
+  const agents = context.get(agentsContext);
+  const auth = context.get(authContext);
 
-  if (context.agents.state !== "enabled") {
-    return { success: false, error: context.agents.reason };
+  await auth.require(request);
+
+  if (agents.state !== "enabled") {
+    return { success: false, error: agents.reason };
   }
 
-  await context.agents.value.triggerSync();
-  const sync = context.agents.value.lastSync();
-  return { success: !sync.error, error: sync.error };
+  await agents.value.triggerSync();
+  const sync = agents.value.lastSync();
+  return {
+    success: !sync.error,
+    error: sync.error,
+    authUrl: sync.authUrl,
+  };
 }
 
 export default function Page({ loaderData }: Route.ComponentProps) {
@@ -48,7 +60,7 @@ export default function Page({ loaderData }: Route.ComponentProps) {
         <Title>Headplane Agent</Title>
         <Notice title="Agent Not Enabled">
           {loaderData.reason}. To learn how to set up the agent, visit the{" "}
-          <Link external styled to="https://headplane.dev/docs/agent">
+          <Link external styled to="https://headplane.net/features/agent">
             documentation
           </Link>
         </Notice>
@@ -56,6 +68,7 @@ export default function Page({ loaderData }: Route.ComponentProps) {
     );
   }
 
+  const isPending = !loaderData.syncedAt && loaderData.authUrl;
   const hasError = Boolean(loaderData.error);
 
   return (
@@ -69,8 +82,10 @@ export default function Page({ loaderData }: Route.ComponentProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <StatusCircle isOnline={!hasError} className="h-5 w-5" />
-        <span className="text-lg font-medium">{hasError ? "Error" : "Healthy"}</span>
+        <StatusCircle isOnline={!hasError && !isPending} className="h-5 w-5" />
+        <span className="text-lg font-medium">
+          {hasError ? "Error" : isPending ? "Waiting for approval" : "Healthy"}
+        </span>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -87,6 +102,17 @@ export default function Page({ loaderData }: Route.ComponentProps) {
           {loaderData.nodeCount}
         </Text>
       </div>
+
+      {isPending ? (
+        <Notice variant="warning" title="Agent Needs Approval">
+          The agent is waiting for its Tailnet registration to be approved. Headplane will attempt
+          to auto-approve it, but if that fails, you can complete approval by visiting{" "}
+          <Link external styled to={loaderData.authUrl!}>
+            this link
+          </Link>
+          .
+        </Notice>
+      ) : undefined}
 
       {loaderData.error ? (
         <Notice variant="error" title="Sync Error">

@@ -6,7 +6,14 @@ import Link from "~/components/link";
 import Notice from "~/components/notice";
 import Select from "~/components/select";
 import TableList from "~/components/table-list";
+import {
+  appConfigContext,
+  authContext,
+  headscaleLiveStoreContext,
+  requestApiContext,
+} from "~/server/context";
 import { usersResource } from "~/server/headscale/live-store";
+import { isUserPrincipal } from "~/server/web/auth";
 import { Capabilities } from "~/server/web/roles";
 import type { PreAuthKey } from "~/types";
 import type { User } from "~/types/User";
@@ -19,9 +26,14 @@ import AuthKeyRow from "./auth-key-row";
 import AddAuthKey from "./dialogs/add-auth-key";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const { principal, api } = await context.apiForRequest(request);
+  const auth = context.get(authContext);
+  const config = context.get(appConfigContext);
+  const getRequestApi = context.get(requestApiContext);
+  const headscaleLiveStore = context.get(headscaleLiveStoreContext);
 
-  const usersSnap = await context.hsLive.get(usersResource, api);
+  const { principal, api } = await getRequestApi(request);
+
+  const usersSnap = await headscaleLiveStore.get(usersResource, api);
   const users = usersSnap.data;
 
   let keys: { user: User | null; preAuthKeys: PreAuthKey[] }[];
@@ -85,16 +97,17 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       .map(({ user, error }) => ({ error, user }));
   }
 
-  const canGenerateAny = context.auth.can(principal, Capabilities.generate_authkeys);
-  const canGenerateOwn = context.auth.can(principal, Capabilities.generate_own_authkeys);
+  const canGenerateAny = auth.can(principal, Capabilities.generate_authkeys);
+  const canGenerateOwn = auth.can(principal, Capabilities.generate_own_authkeys);
 
   return {
     access: canGenerateAny || canGenerateOwn,
-    currentSubject: principal.kind === "oidc" ? principal.user.subject : undefined,
+    currentHeadscaleUserId: isUserPrincipal(principal) ? principal.user.headscaleUserId : undefined,
+    currentSubject: isUserPrincipal(principal) ? principal.user.subject : undefined,
     keys,
     missing,
     selfServiceOnly: !canGenerateAny && canGenerateOwn,
-    url: context.config.headscale.public_url ?? context.config.headscale.url,
+    url: config.headscale.public_url ?? config.headscale.url,
     users,
   };
 }
@@ -103,7 +116,16 @@ export const action = authKeysAction;
 
 type Status = "all" | "active" | "expired" | "reusable" | "ephemeral";
 export default function Page({
-  loaderData: { keys, missing, users, url, access, selfServiceOnly, currentSubject },
+  loaderData: {
+    keys,
+    missing,
+    users,
+    url,
+    access,
+    selfServiceOnly,
+    currentHeadscaleUserId,
+    currentSubject,
+  },
 }: Route.ComponentProps) {
   const [selectedUser, setSelectedUser] = useState("__headplane_all");
   const [status, setStatus] = useState<Status>("active");
@@ -199,6 +221,7 @@ export default function Page({
         </Link>
       </p>
       <AddAuthKey
+        currentHeadscaleUserId={currentHeadscaleUserId}
         currentSubject={currentSubject}
         selfServiceOnly={selfServiceOnly}
         url={url}

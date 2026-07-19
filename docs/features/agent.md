@@ -7,8 +7,9 @@ description: Configure the Headplane Agent for enhanced functionality.
 
 The Headplane Agent is an optional component that periodically syncs node
 information (such as version and OS details) from the Tailnet. Unlike previous
-versions, the agent no longer runs as a persistent Tailnet node — it
-auto-generates pre-auth keys and performs periodic syncs instead.
+versions, the agent does not require you to manually create or manage pre-auth
+keys — Headplane generates a fresh key for each agent startup and reuses the
+agent's existing Tailnet state across restarts.
 
 ## Prerequisites
 
@@ -18,8 +19,9 @@ Before enabling the agent, ensure the following:
    keys which are only available in Headscale 0.28+.
 
 2. **`headscale.api_key`** must be set in your Headplane configuration file.
-   The agent uses this key to auto-generate ephemeral pre-auth keys for
-   connecting to the Tailnet.
+   The agent uses this key to auto-generate pre-auth keys for connecting to the
+   Tailnet and to auto-approve its own registration when Headscale is configured
+   to require manual approval.
 
 ## Configuration
 
@@ -54,6 +56,20 @@ default. You can change this location by defining
 **`integration.agent.work_dir`** in your Headplane configuration file. Ensure
 that the specified directory exists and is writable by the user running
 Headplane.
+
+Headplane preserves the agent's `tailscaled.state` in this directory. This lets
+the agent retain its Tailnet identity across Headplane restarts instead of
+registering as a new host each time. If the agent's state is lost or unusable,
+Headplane falls back to the pre-auth key and registers a new agent node.
+
+## Interactive approval
+
+Under normal circumstances, the agent connects headlessly using the auto-generated
+pre-auth key and no manual interaction is required. If your Headscale server is
+configured to require interactive approval, Headplane detects the auth URL the
+agent prints and automatically approves the request using the configured
+`headscale.api_key`. The Settings page still shows the approval link as a
+fallback in case auto-approval fails.
 
 ## Usage
 

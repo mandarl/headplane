@@ -30,6 +30,17 @@ func main() {
 	}
 
 	log.SetDebug(cfg.Debug)
+
+	if cfg.TSAuthKey == "" {
+		log.Info("No TS_AUTHKEY provided; tsnet will use existing state or prompt for interactive login")
+	} else {
+		prefix := cfg.TSAuthKey
+		if len(prefix) > 16 {
+			prefix = prefix[:16]
+		}
+		log.Info("TS_AUTHKEY provided (prefix: %s); connecting with pre-auth key", prefix)
+	}
+
 	agent := tsnet.NewAgent(cfg)
 	defer agent.Shutdown()
 

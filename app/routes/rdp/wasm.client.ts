@@ -68,7 +68,10 @@ export function loadHeadplaneRDPWASM(): Promise<HeadplaneRDPFactory> {
     resolvedFactory = (async () => {
       await loadGoHelper();
       const go = new Go();
-      const result = await WebAssembly.instantiateStreaming(fetch(WASM_MODULE_URL), go.importObject);
+      const result = await WebAssembly.instantiateStreaming(
+        fetch(WASM_MODULE_URL),
+        go.importObject,
+      );
       return new Promise<HeadplaneRDPFactory>((resolve) => {
         globalThis.__hp_rdp_resolve = resolve;
         go.run(result.instance);

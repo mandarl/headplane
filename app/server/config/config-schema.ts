@@ -49,6 +49,17 @@ const serverConfig = type({
   // either is set, `cookie_secure` is forced to `true`.
   tls_cert_path: "string?",
   tls_key_path: "string?",
+
+  "proxy_auth?": {
+    enabled: "boolean",
+    allowed_cidrs: "string[]?",
+    trusted_proxy_cidrs: "string[]?",
+    ip_header: "string?",
+    user_header: "string?",
+    email_header: "string?",
+    name_header: "string?",
+    picture_header: "string?",
+  },
 });
 
 const partialServerConfig = type({
@@ -65,6 +76,17 @@ const partialServerConfig = type({
 
   tls_cert_path: "string?",
   tls_key_path: "string?",
+
+  "proxy_auth?": {
+    enabled: "boolean?",
+    allowed_cidrs: "string[]?",
+    trusted_proxy_cidrs: "string[]?",
+    ip_header: "string?",
+    user_header: "string?",
+    email_header: "string?",
+    name_header: "string?",
+    picture_header: "string?",
+  },
 });
 
 const headscaleConfig = type({
@@ -92,6 +114,8 @@ const partialHeadscaleConfig = type({
   dns_records_path: "string.lower?",
   tls_cert_path: "string.lower?",
 });
+
+const assignableRole = '"admin" | "network_admin" | "it_admin" | "auditor" | "viewer" | "member"';
 
 const oidcConfig = type({
   enabled: "boolean = true",
@@ -126,6 +150,8 @@ const oidcConfig = type({
   disable_api_key_login: "boolean = false",
   scope: 'string = "openid email profile"',
   subject_claims: type("string[]").pipe(normalizeStringArray).optional(),
+  default_role: `${assignableRole} = "member"`,
+  role_claim: "string?",
   allow_weak_rsa_keys: "boolean = false",
   profile_picture_source: '"oidc" | "gravatar" = "oidc"',
   extra_params: "Record<string, string>?",
@@ -153,6 +179,8 @@ const partialOidcConfig = type({
   disable_api_key_login: "boolean?",
   scope: "string?",
   subject_claims: type("string[]").pipe(normalizeStringArray).optional(),
+  default_role: `${assignableRole}?`,
+  role_claim: "string?",
   allow_weak_rsa_keys: "boolean?",
   extra_params: "Record<string, string>?",
   profile_picture_source: '"oidc" | "gravatar"?',

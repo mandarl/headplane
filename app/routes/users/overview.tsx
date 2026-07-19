@@ -1,7 +1,15 @@
 import { createHash } from "node:crypto";
 
 import PageError from "~/components/page-error";
+import {
+  appConfigContext,
+  authContext,
+  headscaleConfigContext,
+  headscaleLiveStoreContext,
+  requestApiContext,
+} from "~/server/context";
 import { nodesResource, usersResource } from "~/server/headscale/live-store";
+import { isUserPrincipal } from "~/server/web/auth";
 import { Capabilities, Roles } from "~/server/web/roles";
 import type { Role } from "~/server/web/roles";
 import type { Machine, User } from "~/types";
@@ -35,18 +43,24 @@ export interface UnlinkedHeadscaleUser extends User {
 }
 
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const principal = await context.auth.require(request);
-  const check = await context.auth.can(principal, Capabilities.read_users);
+  const auth = context.get(authContext);
+  const config = context.get(appConfigContext);
+  const getRequestApi = context.get(requestApiContext);
+  const headscaleConfig = context.get(headscaleConfigContext);
+  const headscaleLiveStore = context.get(headscaleLiveStoreContext);
+
+  const principal = await auth.require(request);
+  const check = await auth.can(principal, Capabilities.read_users);
   if (!check) {
     throw new Error(
       "You do not have permission to view this page. Please contact your administrator.",
     );
   }
 
-  const writablePermission = await context.auth.can(principal, Capabilities.write_users);
+  const writablePermission = await auth.can(principal, Capabilities.write_users);
 
   // Primary data: Headplane users from the database (always available)
-  const hpUsers = await context.auth.listUsers();
+  const hpUsers = await auth.listUsers();
 
   // Secondary data: Headscale API (may fail)
   let apiUsers: User[] = [];
@@ -54,10 +68,10 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   let apiError: string | undefined;
 
   try {
-    const { api } = await context.apiForRequest(request);
+    const { api } = await getRequestApi(request);
     const [nodesSnap, usersSnap] = await Promise.all([
-      context.hsLive.get(nodesResource, api),
-      context.hsLive.get(usersResource, api),
+      headscaleLiveStore.get(nodesResource, api),
+      headscaleLiveStore.get(usersResource, api),
     ]);
     nodes = nodesSnap.data;
     apiUsers = usersSnap.data;
@@ -67,7 +81,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       "Could not connect to the Headscale API. Headscale user data and machine information are unavailable.";
   }
 
-  const useGravatar = context.config.oidc?.profile_picture_source === "gravatar";
+  const useGravatar = config.oidc?.profile_picture_source === "gravatar";
 
   function resolveProfilePic(email?: string, profilePicUrl?: string): string | undefined {
     if (!useGravatar) return profilePicUrl;
@@ -124,20 +138,15 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     claimed: claimedIds.has(u.id),
   }));
 
-  let magic: string | undefined;
-  if (context.hs.readable()) {
-    if (context.hs.c?.dns.magic_dns) {
-      magic = context.hs.c.dns.base_domain;
-    }
-  }
+  const magic = headscaleConfig.getMagicDNSBaseDomain();
 
-  const isOwner = principal.kind === "oidc" && principal.user.role === "owner";
+  const isOwner = isUserPrincipal(principal) && principal.user.role === "owner";
 
   return {
     writable: writablePermission,
-    currentUserId: principal.kind === "oidc" ? principal.user.id : undefined,
+    currentUserId: isUserPrincipal(principal) ? principal.user.id : undefined,
     isOwner,
-    oidc: context.config.oidc ? { issuer: context.config.oidc.issuer } : undefined,
+    oidc: config.oidc ? { issuer: config.oidc.issuer } : undefined,
     magic,
     apiError,
     headplaneUsers,

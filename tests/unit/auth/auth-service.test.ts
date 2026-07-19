@@ -30,6 +30,26 @@ describe("findOrCreateUser", () => {
     expect(role).toBe("member");
   });
 
+  test("second distinct user can receive a configured initial role", async () => {
+    await auth.findOrCreateUser("sub-owner", { name: "Owner" });
+    await auth.findOrCreateUser("sub-admin", { name: "Admin" }, { initialRole: "admin" });
+    const role = await auth.roleForSubject("sub-admin");
+    expect(role).toBe("admin");
+  });
+
+  test("first created user becomes owner even with a configured initial role", async () => {
+    await auth.findOrCreateUser("sub-owner", { name: "Owner" }, { initialRole: "viewer" });
+    const role = await auth.roleForSubject("sub-owner");
+    expect(role).toBe("owner");
+  });
+
+  test("configured initial roles cannot grant owner", async () => {
+    await auth.findOrCreateUser("sub-owner", { name: "Owner" });
+    await auth.findOrCreateUser("sub-other", { name: "Other" }, { initialRole: "owner" });
+    const role = await auth.roleForSubject("sub-other");
+    expect(role).toBe("member");
+  });
+
   test("existing subject returns same id (idempotent)", async () => {
     const id1 = await auth.findOrCreateUser("sub-1", { name: "Alice" });
     const id2 = await auth.findOrCreateUser("sub-1", { name: "Alice" });
@@ -44,6 +64,35 @@ describe("findOrCreateUser", () => {
     const user = users.find((u) => u.sub === "sub-1");
     expect(user?.name).toBe("New");
     expect(user?.email).toBe("new@test.com");
+  });
+
+  test("syncs an existing non-owner role when explicitly provided", async () => {
+    await auth.findOrCreateUser("sub-owner");
+    await auth.findOrCreateUser("sub-1", { name: "User" });
+
+    await auth.findOrCreateUser("sub-1", { name: "User" }, { syncRole: "admin" });
+
+    const role = await auth.roleForSubject("sub-1");
+    expect(role).toBe("admin");
+  });
+
+  test("does not apply initial role to an existing user", async () => {
+    await auth.findOrCreateUser("sub-owner");
+    await auth.findOrCreateUser("sub-1", { name: "User" });
+
+    await auth.findOrCreateUser("sub-1", { name: "User" }, { initialRole: "admin" });
+
+    const role = await auth.roleForSubject("sub-1");
+    expect(role).toBe("member");
+  });
+
+  test("does not sync the owner role", async () => {
+    await auth.findOrCreateUser("sub-owner");
+
+    await auth.findOrCreateUser("sub-owner", { name: "Owner" }, { syncRole: "admin" });
+
+    const role = await auth.roleForSubject("sub-owner");
+    expect(role).toBe("owner");
   });
 });
 
@@ -193,6 +242,113 @@ describe("session round-trip", () => {
     });
 
     await expect(auth.require(request)).rejects.toThrow();
+  });
+});
+
+describe("proxy authentication", () => {
+  test("creates a user-backed principal from trusted proxy headers", async () => {
+    const { auth } = createTestAuth({
+      headscaleApiKey: "configured-headscale-key",
+      proxyAuth: {
+        enabled: true,
+        allowedCidrs: ["10.10.0.0/16"],
+        emailHeader: "X-Forwarded-Email",
+        nameHeader: "X-Forwarded-Name",
+      },
+    });
+    const request = new Request("http://localhost/test", {
+      headers: {
+        "Remote-User": "alice",
+        "X-Forwarded-Email": "alice@example.com",
+        "X-Forwarded-Name": "Alice Example",
+      },
+    });
+
+    auth.registerRequestClientAddress(request, "10.10.42.9");
+
+    const principal = await auth.require(request);
+    expect(principal.kind).toBe("proxy");
+    if (principal.kind === "proxy") {
+      expect(principal.user.subject).toBe("proxy:alice");
+      expect(principal.user.role).toBe("owner");
+      expect(principal.profile.name).toBe("Alice Example");
+      expect(principal.profile.email).toBe("alice@example.com");
+      expect(principal.profile.username).toBe("alice");
+    }
+    expect(auth.getHeadscaleApiKey(principal)).toBe("configured-headscale-key");
+  });
+
+  test("uses localhost CIDRs by default when no allowed CIDRs are configured", async () => {
+    const { auth } = createTestAuth({
+      headscaleApiKey: "configured-headscale-key",
+      proxyAuth: { enabled: true },
+    });
+    const request = new Request("http://localhost/test", {
+      headers: { "Remote-User": "alice" },
+    });
+
+    auth.registerRequestClientAddress(request, "::ffff:127.0.0.1");
+
+    const principal = await auth.require(request);
+    expect(principal.kind).toBe("proxy");
+    expect(auth.getHeadscaleApiKey(principal)).toBe("configured-headscale-key");
+  });
+
+  test("falls back to normal session auth outside allowed CIDRs", async () => {
+    const { auth } = createTestAuth({
+      headscaleApiKey: "configured-headscale-key",
+      proxyAuth: { enabled: true, allowedCidrs: ["10.10.0.0/16"] },
+    });
+    const request = new Request("http://localhost/test");
+
+    auth.registerRequestClientAddress(request, "10.11.42.9");
+
+    await expect(auth.require(request)).rejects.toThrow("No session cookie found");
+  });
+
+  test("can check allowed CIDRs against a forwarded IP from a trusted proxy", async () => {
+    const { auth } = createTestAuth({
+      headscaleApiKey: "configured-headscale-key",
+      proxyAuth: {
+        enabled: true,
+        allowedCidrs: ["203.0.113.0/24"],
+        trustedProxyCidrs: ["10.0.0.0/24"],
+        ipHeader: "X-Forwarded-For",
+      },
+    });
+    const request = new Request("http://localhost/test", {
+      headers: {
+        "Remote-User": "alice",
+        "X-Forwarded-For": "203.0.113.42, 10.0.0.10",
+      },
+    });
+
+    auth.registerRequestClientAddress(request, "10.0.0.10");
+
+    const principal = await auth.require(request);
+    expect(principal.kind).toBe("proxy");
+  });
+
+  test("does not trust forwarded IP headers from untrusted direct peers", async () => {
+    const { auth } = createTestAuth({
+      headscaleApiKey: "configured-headscale-key",
+      proxyAuth: {
+        enabled: true,
+        allowedCidrs: ["203.0.113.0/24"],
+        trustedProxyCidrs: ["10.0.0.0/24"],
+        ipHeader: "X-Real-IP",
+      },
+    });
+    const request = new Request("http://localhost/test", {
+      headers: {
+        "Remote-User": "alice",
+        "X-Real-IP": "203.0.113.42",
+      },
+    });
+
+    auth.registerRequestClientAddress(request, "198.51.100.10");
+
+    await expect(auth.require(request)).rejects.toThrow("No session cookie found");
   });
 });
 

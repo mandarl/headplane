@@ -12,10 +12,11 @@ import Text from "~/components/text";
 import Title from "~/components/title";
 import { useForm } from "~/hooks/use-form";
 import type { User } from "~/types";
+import { normalizeRegistrationKey } from "~/utils/register-key";
 import { getUserDisplayName } from "~/utils/user";
 
 const registerSchema = type({
-  register_key: "string == 24",
+  register_key: "string > 0",
   user: "string > 0",
 });
 
@@ -28,7 +29,16 @@ export interface NewMachineProps {
 
 export default function NewMachine(data: NewMachineProps) {
   const [pushDialog, setPushDialog] = useState(false);
-  const form = useForm({ schema: registerSchema });
+  const form = useForm({
+    schema: registerSchema,
+    validate: (values) =>
+      normalizeRegistrationKey(String(values.register_key ?? ""))
+        ? undefined
+        : {
+            register_key:
+              "Paste the registration URL or full hskey-authreq-... key from tailscale up.",
+          },
+  });
   const navigate = useNavigate();
 
   return (
@@ -43,7 +53,8 @@ export default function NewMachine(data: NewMachineProps) {
             {...form.field("register_key")}
             required
             label="Machine Key"
-            placeholder="AbCd..."
+            placeholder="hskey-authreq-XXXXXXXXXXXXXXXXXXXXXXXX"
+            description="Paste the registration URL or full key shown by tailscale up."
           />
           <Select
             required

@@ -1,5 +1,6 @@
 import { data } from "react-router";
 
+import { authContext, rdpGatewayContext } from "~/server/context";
 import { Capabilities } from "~/server/web/roles";
 import log from "~/utils/log";
 
@@ -34,18 +35,21 @@ export function loader() {
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
-  const principal = await context.auth.require(request);
+  const auth = context.get(authContext);
+  const rdpGateway = context.get(rdpGatewayContext);
+
+  const principal = await auth.require(request);
 
   // Gate to users who can write machine state. This includes owner, admin,
   // it_admin, and network_admin roles. write_machines is intentionally used
   // over write_network so that IT admins (who manage Windows machines) can
   // use this feature; write_network is for DNS/subnet/exit-node config which
   // is a separate concern.
-  if (!context.auth.can(principal, Capabilities.write_machines)) {
+  if (!auth.can(principal, Capabilities.write_machines)) {
     return data({ success: false, error: "Insufficient permissions" }, 403);
   }
 
-  if (context.rdpGateway.state !== "enabled") {
+  if (rdpGateway.state !== "enabled") {
     return data({ success: false, error: "RDP gateway is not configured on this server" }, 404);
   }
 
@@ -58,7 +62,7 @@ export async function action({ request, context }: Route.ActionArgs) {
     return data({ success: false, error: "Missing required fields" }, 400);
   }
 
-  const gateway = context.rdpGateway.value;
+  const gateway = rdpGateway.value;
 
   switch (actionId) {
     case "enable": {

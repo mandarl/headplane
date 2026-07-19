@@ -73,9 +73,7 @@ _Example:_ `"/etc/headscale/config.yaml"`
 
 ## settings.headscale.config_strict
 
-_Description:_ Headplane internally validates the Headscale configuration
-to ensure that it changes the configuration in a safe way.
-If you want to disable this validation, set this to false.
+_Description:_ Deprecated. Headplane no longer validates the complete Headscale configuration and this option has no effect.
 
 _Type:_ boolean
 
@@ -83,7 +81,7 @@ _Default:_ `true`
 
 ## settings.headscale.dns_records_path
 
-_Description:_ If you are using `dns.extra_records_path` in your Headscale configuration, you need to set this to the path for Headplane to be able to read the DNS records.
+_Description:_ If you are using `dns.extra_records_path` in your Headscale configuration, Headplane reads that path automatically. Set this only when Headplane needs to access the same file at a different path.
 Ensure that the file is both readable and writable by the Headplane process.
 When using this, Headplane will no longer need to automatically restart Headscale for DNS record changes.
 
@@ -252,6 +250,15 @@ _Type:_ boolean
 
 _Default:_ `false`
 
+## settings.oidc.default_role
+
+_Description:_ Role assigned to newly created OIDC users after the first owner is bootstrapped.
+The owner role is reserved for the first-login bootstrap.
+
+_Type:_ one of "admin", "network_admin", "it_admin", "auditor", "viewer", "member"
+
+_Default:_ `"member"`
+
 ## settings.oidc.headscale_api_key_path
 
 _Description:_ DEPRECATED: Use `headscale.api_key_path` instead.
@@ -283,6 +290,17 @@ _Type:_ string
 _Default:_ `""`
 
 _Example:_ `"https://headscale.example.com/admin/oidc/callback"`
+
+## settings.oidc.role_claim
+
+_Description:_ Optional OIDC claim containing the Headplane role to assign to newly created users.
+A valid role claim takes precedence over default_role.
+
+_Type:_ null or string
+
+_Default:_ `null`
+
+_Example:_ `"headplane_role"`
 
 ## settings.oidc.token_endpoint_auth_method
 
@@ -350,3 +368,82 @@ _Description:_ The port to listen on.
 _Type:_ 16 bit unsigned integer; between 0 and 65535 (both inclusive)
 
 _Default:_ `3000`
+
+## settings.server.proxy_auth
+
+_Description:_ Proxy authentication configuration.
+
+_Type:_ submodule
+
+_Default:_ `{ }`
+
+## settings.server.proxy_auth.allowed_cidrs
+
+_Description:_ Direct client CIDR ranges allowed to bypass Headplane's login flow.
+These should be the addresses your trusted reverse proxy uses to connect
+to Headplane. Requires headscale.api_key_path.
+
+_Type:_ list of string
+
+_Default:_ `[ "127.0.0.1/32" "::1/128" ]`
+
+_Example:_ `[ "10.0.0.0/24" ]`
+
+## settings.server.proxy_auth.email_header
+
+_Description:_ Optional header containing the authenticated user's email address.
+
+_Type:_ null or string
+
+_Default:_ `null`
+
+## settings.server.proxy_auth.enabled
+
+_Description:_ Whether to trust reverse proxy authentication for allowed client CIDRs.
+
+_Type:_ boolean
+
+_Default:_ `false`
+
+## settings.server.proxy_auth.ip_header
+
+_Description:_ Optional header containing the original client IP, such as X-Forwarded-For or X-Real-IP.
+
+_Type:_ null or string
+
+_Default:_ `null`
+
+## settings.server.proxy_auth.name_header
+
+_Description:_ Optional header containing the authenticated user's display name.
+
+_Type:_ null or string
+
+_Default:_ `null`
+
+## settings.server.proxy_auth.picture_header
+
+_Description:_ Optional header containing the authenticated user's profile picture URL.
+
+_Type:_ null or string
+
+_Default:_ `null`
+
+## settings.server.proxy_auth.user_header
+
+_Description:_ Header containing the stable authenticated proxy user identity.
+
+_Type:_ string
+
+_Default:_ `"Remote-User"`
+
+## settings.server.proxy_auth.trusted_proxy_cidrs
+
+_Description:_ Direct proxy CIDR ranges trusted to supply ip_header.
+Only used when ip_header is set.
+
+_Type:_ list of string
+
+_Default:_ `[ "127.0.0.1/32" "::1/128" ]`
+
+_Example:_ `[ "127.0.0.1/32" ]`

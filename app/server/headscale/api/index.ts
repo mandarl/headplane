@@ -22,6 +22,7 @@ import log from "~/utils/log";
 import { type Capabilities, capabilitiesFor } from "./capabilities";
 import { isDataWithApiError } from "./error-client";
 import { type ApiKeyApi, makeApiKeyApi } from "./resources/api-keys";
+import { type AuthApi, makeAuthApi } from "./resources/auth";
 import { makeNodeApi, type NodeApi } from "./resources/nodes";
 import { makePolicyApi, type PolicyApi } from "./resources/policy";
 import { makePreAuthKeyApi, type PreAuthKeyApi } from "./resources/pre-auth-keys";
@@ -48,6 +49,7 @@ export interface HeadscaleClient {
   policy: PolicyApi;
   preAuthKeys: PreAuthKeyApi;
   apiKeys: ApiKeyApi;
+  auth: AuthApi;
 }
 
 export interface CreateHeadscaleOptions {
@@ -149,6 +151,7 @@ export async function createHeadscale(opts: CreateHeadscaleOptions): Promise<Hea
         policy: makePolicyApi(transport, capabilities, apiKey),
         preAuthKeys: makePreAuthKeyApi(transport, capabilities, apiKey),
         apiKeys: makeApiKeyApi(transport, capabilities, apiKey),
+        auth: makeAuthApi(transport, capabilities, apiKey),
       };
     },
     async dispose() {

@@ -1,14 +1,26 @@
 import { data, redirect } from "react-router";
 
+import {
+  authContext,
+  dbContext,
+  headscaleLiveStoreContext,
+  requestApiContext,
+} from "~/server/context";
 import { isDataWithApiError } from "~/server/headscale/api/error-client";
 import { nodesResource } from "~/server/headscale/live-store";
 import { setServiceOverride } from "~/server/service-overrides";
 import { Capabilities } from "~/server/web/roles";
+import { normalizeRegistrationKey } from "~/utils/register-key";
 
 import type { Route } from "./+types/machine";
 
 export async function machineAction({ request, context }: Route.ActionArgs) {
-  const { principal, api } = await context.apiForRequest(request);
+  const auth = context.get(authContext);
+  const db = context.get(dbContext);
+  const getRequestApi = context.get(requestApiContext);
+  const headscaleLiveStore = context.get(headscaleLiveStoreContext);
+
+  const { principal, api } = await getRequestApi(request);
 
   const formData = await request.formData();
 
@@ -21,15 +33,22 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
 
   // Fast track register since it doesn't require an existing machine
   if (action === "register") {
-    if (!context.auth.can(principal, Capabilities.write_machines)) {
+    if (!auth.can(principal, Capabilities.write_machines)) {
       throw data("You do not have permission to manage machines", {
         status: 403,
       });
     }
 
-    const registrationKey = formData.get("register_key")?.toString();
-    if (!registrationKey) {
+    const registrationKeyInput = formData.get("register_key")?.toString();
+    if (!registrationKeyInput) {
       throw data("Missing `register_key` in the form data.", {
+        status: 400,
+      });
+    }
+
+    const registrationKey = normalizeRegistrationKey(registrationKeyInput);
+    if (!registrationKey) {
+      throw data("Invalid `register_key` in the form data.", {
         status: 400,
       });
     }
@@ -42,7 +61,7 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
     }
 
     const node = await api.nodes.register(user, registrationKey);
-    await context.hsLive.refresh(nodesResource, api);
+    await headscaleLiveStore.refresh(nodesResource, api);
     return redirect(`/machines/${node.id}`);
   }
 
@@ -61,7 +80,7 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
     });
   }
 
-  if (!context.auth.canManageNode(principal, node)) {
+  if (!auth.canManageNode(principal, node)) {
     throw data("You do not have permission to act on this machine", {
       status: 403,
     });
@@ -77,20 +96,27 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
       }
 
       const name = String(formData.get("name"));
+      if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(name.toLowerCase())) {
+        throw data(
+          "Machine names must be valid DNS labels: lowercase letters, numbers, and hyphens only, and must start and end with a letter or number.",
+          { status: 400 },
+        );
+      }
+
       await api.nodes.rename(nodeId, name);
-      await context.hsLive.refresh(nodesResource, api);
+      await headscaleLiveStore.refresh(nodesResource, api);
       return { message: "Machine renamed" };
     }
 
     case "delete": {
       await api.nodes.delete(nodeId);
-      await context.hsLive.refresh(nodesResource, api);
+      await headscaleLiveStore.refresh(nodesResource, api);
       return redirect("/machines");
     }
 
     case "expire": {
       await api.nodes.expire(nodeId);
-      await context.hsLive.refresh(nodesResource, api);
+      await headscaleLiveStore.refresh(nodesResource, api);
       return { message: "Machine expired" };
     }
 
@@ -108,7 +134,7 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
           tags.map((tag) => tag.trim()).filter((tag) => tag !== ""),
         );
 
-        await context.hsLive.refresh(nodesResource, api);
+        await headscaleLiveStore.refresh(nodesResource, api);
         return { success: true as const, message: "Tags updated" };
       } catch (error) {
         if (isDataWithApiError(error) && error.data.statusCode === 400) {
@@ -116,6 +142,7 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
             {
               success: false as const,
               error:
+                extractApiErrorMessage(error.data) ??
                 "One or more tags are not defined in your ACL policy. Please add them to your policy before assigning them to a machine.",
             },
             { status: 400 },
@@ -173,7 +200,7 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
       }
 
       await api.nodes.approveRoutes(nodeId, newApproved);
-      await context.hsLive.refresh(nodesResource, api);
+      await headscaleLiveStore.refresh(nodesResource, api);
       return { message: "Routes updated" };
     }
 
@@ -191,7 +218,7 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
         });
       }
       await api.nodes.reassignUser(nodeId, user);
-      await context.hsLive.refresh(nodesResource, api);
+      await headscaleLiveStore.refresh(nodesResource, api);
       return { message: "Machine reassigned" };
     }
 
@@ -216,12 +243,14 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
         });
       }
 
+      // "oidc" and "proxy" principals share the UserPrincipal shape (profile
+      // + user); only "api_key" sessions have a plain displayName instead.
       const updatedBy =
-        principal.kind === "oidc"
-          ? (principal.profile.name ?? principal.profile.username ?? principal.user.subject)
-          : principal.displayName;
+        principal.kind === "api_key"
+          ? principal.displayName
+          : (principal.profile.name ?? principal.profile.username ?? principal.user.subject);
 
-      await setServiceOverride(context.db, {
+      await setServiceOverride(db, {
         hostId: node.nodeKey,
         proto,
         port,
@@ -237,4 +266,15 @@ export async function machineAction({ request, context }: Route.ActionArgs) {
         status: 400,
       });
   }
+}
+
+function extractApiErrorMessage(error: { data?: unknown; rawData: string }) {
+  if (error.data != null && typeof error.data === "object" && "message" in error.data) {
+    const message = (error.data as { message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) {
+      return message;
+    }
+  }
+
+  return error.rawData.length > 0 ? error.rawData : undefined;
 }

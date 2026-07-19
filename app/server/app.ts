@@ -12,6 +12,7 @@
 import { exit, versions } from "node:process";
 
 import { createRequestListener } from "@react-router/node";
+import { RouterContextProvider } from "react-router";
 import * as build from "virtual:react-router/server-build";
 
 import log from "~/utils/log";
@@ -19,7 +20,21 @@ import log from "~/utils/log";
 import type { HeadplaneConfig } from "./config/config-schema";
 import { ConfigError } from "./config/error";
 import { loadConfig } from "./config/load";
-import { createAppContext } from "./context";
+import {
+  agentsContext,
+  appConfigContext,
+  authContext,
+  createAppContext,
+  dbContext,
+  headscaleApiKeyContext,
+  headscaleConfigContext,
+  headscaleContext,
+  headscaleLiveStoreContext,
+  integrationContext,
+  oidcContext,
+  rdpGatewayContext,
+  requestApiContext,
+} from "./context";
 
 log.info("server", "Running Node.js %s", versions.node);
 
@@ -60,8 +75,31 @@ export async function dispose(): Promise<void> {
 // TODO: `getLoadContext` is the right place to handle reverse proxy
 // translation — better than doing it in the OIDC client because it
 // applies to all requests, not just OIDC ones.
+function getLoadContext(request: Request, client: ClientAddress) {
+  ctx.auth.registerRequestClientAddress(request, client.address);
+
+  const routerContext = new RouterContextProvider();
+  routerContext.set(agentsContext, ctx.agents);
+  routerContext.set(appConfigContext, ctx.config);
+  routerContext.set(authContext, ctx.auth);
+  routerContext.set(dbContext, ctx.db);
+  routerContext.set(headscaleContext, ctx.headscale);
+  routerContext.set(headscaleApiKeyContext, ctx.headscaleApiKey);
+  routerContext.set(headscaleConfigContext, ctx.hs);
+  routerContext.set(headscaleLiveStoreContext, ctx.hsLive);
+  routerContext.set(integrationContext, ctx.integration);
+  routerContext.set(oidcContext, ctx.oidc);
+  routerContext.set(rdpGatewayContext, ctx.rdpGateway);
+  routerContext.set(requestApiContext, ctx.apiForRequest);
+  return routerContext;
+}
+
+interface ClientAddress {
+  address?: string;
+}
+
 export default createRequestListener({
   build,
   mode: import.meta.env.MODE,
-  getLoadContext: () => ctx,
+  getLoadContext,
 });

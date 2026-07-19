@@ -1,5 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
+import { authContext, headscaleContext } from "~/server/context";
+
 // Helper to create a mock FormData with optional api_key
 function mockFormData(apiKey?: string): FormData {
   const formData = new FormData();
@@ -27,6 +29,31 @@ interface MockApiKey {
   expiration: string | null;
 }
 
+interface MockHeadscale {
+  client: (apiKey?: string) => {
+    apiKeys: {
+      list: ReturnType<typeof vi.fn>;
+    };
+  };
+}
+
+interface MockAuth {
+  createApiKeySession: ReturnType<typeof vi.fn>;
+}
+
+// React Router 7 provides context values through context.get(contextKey).
+// This helper creates a fake AppLoadContext that returns the correct mock
+// depending on the context key that is requested.
+function createMockContext({ headscale, auth }: { headscale: MockHeadscale; auth: MockAuth }) {
+  return {
+    get: (context: typeof authContext | typeof headscaleContext) => {
+      if (context === authContext) return auth;
+      if (context === headscaleContext) return headscale;
+      return undefined;
+    },
+  };
+}
+
 // Mock the log module to avoid console spam during tests
 vi.mock("~/utils/log", () => ({
   default: {
@@ -42,10 +69,10 @@ describe("Login action validation", () => {
     const formData = mockFormData(); // no api_key
     const request = mockRequest(formData);
 
-    const mockContext = {
+    const mockContext = createMockContext({
       headscale: { client: vi.fn() },
-      sessions: { createSession: vi.fn() },
-    };
+      auth: { createApiKeySession: vi.fn() },
+    });
 
     const result = (await loginAction({
       request,
@@ -62,10 +89,10 @@ describe("Login action validation", () => {
     const formData = mockFormData("");
     const request = mockRequest(formData);
 
-    const mockContext = {
+    const mockContext = createMockContext({
       headscale: { client: vi.fn() },
-      sessions: { createSession: vi.fn() },
-    };
+      auth: { createApiKeySession: vi.fn() },
+    });
 
     const result = (await loginAction({
       request,
@@ -86,12 +113,12 @@ describe("Login action validation", () => {
       .fn()
       .mockResolvedValue([{ prefix: "other-prefix", expiration: "2030-01-01T00:00:00Z" }]);
 
-    const mockContext = {
+    const mockContext = createMockContext({
       headscale: {
         client: () => ({ apiKeys: { list: mockGetApiKeys } }),
       },
-      sessions: { createSession: vi.fn() },
-    };
+      auth: { createApiKeySession: vi.fn() },
+    });
 
     const result = (await loginAction({
       request,
@@ -113,12 +140,12 @@ describe("Login action validation", () => {
       .fn()
       .mockResolvedValue([{ prefix: "expired-key-prefix", expiration: "2020-01-01T00:00:00Z" }]);
 
-    const mockContext = {
+    const mockContext = createMockContext({
       headscale: {
         client: () => ({ apiKeys: { list: mockGetApiKeys } }),
       },
-      sessions: { createSession: vi.fn() },
-    };
+      auth: { createApiKeySession: vi.fn() },
+    });
 
     const result = (await loginAction({
       request,
@@ -140,12 +167,12 @@ describe("Login action validation", () => {
       .fn()
       .mockResolvedValue([{ prefix: "malformed-key", expiration: null } as MockApiKey]);
 
-    const mockContext = {
+    const mockContext = createMockContext({
       headscale: {
         client: () => ({ apiKeys: { list: mockGetApiKeys } }),
       },
-      sessions: { createSession: vi.fn() },
-    };
+      auth: { createApiKeySession: vi.fn() },
+    });
 
     const result = (await loginAction({
       request,
@@ -172,12 +199,12 @@ describe("Login action validation", () => {
 
     const mockCreateSession = vi.fn().mockResolvedValue("session-cookie");
 
-    const mockContext = {
+    const mockContext = createMockContext({
       headscale: {
         client: () => ({ apiKeys: { list: mockGetApiKeys } }),
       },
-      sessions: { createSession: mockCreateSession },
-    };
+      auth: { createApiKeySession: mockCreateSession },
+    });
 
     const result = await loginAction({
       request,

@@ -1,9 +1,15 @@
 import { WifiOff } from "lucide-react";
-import { data, isRouteErrorResponse, useLocation, type ShouldRevalidateFunction } from "react-router";
+import {
+  data,
+  isRouteErrorResponse,
+  useLocation,
+  type ShouldRevalidateFunction,
+} from "react-router";
 
 import Button from "~/components/button";
 import Card from "~/components/card";
 import Code from "~/components/code";
+import { agentsContext, appConfigContext, requestApiContext } from "~/server/context";
 import { findHeadscaleUserBySubject } from "~/server/web/headscale-identity";
 
 import type { Route } from "./+types/page";
@@ -18,6 +24,10 @@ export const shouldRevalidate: ShouldRevalidateFunction = ({ currentUrl, nextUrl
 };
 
 export async function loader({ request, params, context }: Route.LoaderArgs) {
+  const agents = context.get(agentsContext);
+  const config = context.get(appConfigContext);
+  const getRequestApi = context.get(requestApiContext);
+
   const origin = new URL(request.url).origin;
   const assets = [WASM_HELPER_URL, WASM_MODULE_URL];
   const missing: string[] = [];
@@ -30,17 +40,20 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
   }
 
   if (missing.length > 0) {
-    throw data({ title: "RDP Not Available", message: "hp_rdp.wasm is not available on this server." }, 405);
+    throw data(
+      { title: "RDP Not Available", message: "hp_rdp.wasm is not available on this server." },
+      405,
+    );
   }
 
-  if (context.agents.state !== "enabled") {
+  if (agents.state !== "enabled") {
     throw data(
       { title: "Agent Required", message: "The Headplane agent must be running to use Web RDP." },
       400,
     );
   }
 
-  const { principal, api } = await context.apiForRequest(request);
+  const { principal, api } = await getRequestApi(request);
 
   const hostname = params.id;
   const username = new URL(request.url).searchParams.get("user") || undefined;
@@ -66,7 +79,10 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
       : findHeadscaleUserBySubject(users, principal.user.subject, principal.profile.email);
 
   if (!hsUser) {
-    throw data({ title: "User Not Linked", message: "Your user account is not linked to a Headscale user." }, 404);
+    throw data(
+      { title: "User Not Linked", message: "Your user account is not linked to a Headscale user." },
+      404,
+    );
   }
 
   const preAuthKey = await api.preAuthKeys.create({
@@ -77,7 +93,7 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     aclTags: null,
   });
 
-  const controlURL = context.config.headscale.public_url ?? context.config.headscale.url;
+  const controlURL = config.headscale.public_url ?? config.headscale.url;
   return {
     hostname,
     username,
@@ -109,7 +125,11 @@ export const links: Route.LinksFunction = () => [
 export default function Page({ loaderData }: Route.ComponentProps) {
   const { hostname, username, offline, node } = loaderData;
   const location = useLocation();
-  const state = location.state as { password?: string; domain?: string; colorDepth?: number } | null;
+  const state = location.state as {
+    password?: string;
+    domain?: string;
+    colorDepth?: number;
+  } | null;
   const password = state?.password ?? "";
   const domain = state?.domain ?? "";
   const colorDepth = state?.colorDepth ?? 24;

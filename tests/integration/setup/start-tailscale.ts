@@ -9,6 +9,7 @@ export type Version = string;
 export interface TailscaleNodeEnv {
   container: tc.StartedTestContainer;
   authCode: string;
+  registerUrl: string;
   nodeName: string;
 }
 
@@ -53,7 +54,7 @@ export async function startTailscaleNode(
         if (!token) return;
 
         authCodeResolved = true;
-        resolveAuthCode(token);
+        resolveAuthCode(`${prefix}${token}`);
         rl.close();
       });
 
@@ -68,7 +69,7 @@ export async function startTailscaleNode(
     .withWaitStrategy(tc.Wait.forLogMessage(prefix).withStartupTimeout(30_000))
     .start();
 
-  const authCode = await Promise.race<string>([
+  const registerUrl = await Promise.race<string>([
     authCodePromise,
     new Promise((_, reject) =>
       setTimeout(
@@ -77,6 +78,7 @@ export async function startTailscaleNode(
       ),
     ),
   ]);
+  const authCode = registerUrl.slice(prefix.length);
 
-  return { container, authCode, nodeName };
+  return { container, authCode, registerUrl, nodeName };
 }

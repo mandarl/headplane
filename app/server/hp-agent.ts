@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { access, constants, mkdir, rm, stat } from "node:fs/promises";
+import { access, constants, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -15,7 +15,12 @@ import type { HeadscaleClient } from "./headscale/api";
 
 export interface AgentManager {
   lookup(nodeKeys: string[]): Promise<Record<string, HostInfo>>;
-  lastSync(): { syncedAt: Date | null; nodeCount: number; error?: string };
+  lastSync(): {
+    syncedAt: Date | null;
+    nodeCount: number;
+    error?: string;
+    authUrl?: string;
+  };
   agentNodeKey(): string | undefined;
   triggerSync(): Promise<void>;
   dispose(): void;
@@ -32,6 +37,7 @@ interface SyncState {
   nodeCount: number;
   selfKey?: string;
   error?: string;
+  authUrl?: string;
 }
 
 async function hasExistingState(workDir: string): Promise<boolean> {
@@ -98,6 +104,7 @@ export async function createAgentManager(
   let responseHandler: ((line: string) => void) | null = null;
   let disposed = false;
   let consecutiveErrors = 0;
+  let approvingAuthId: string | undefined;
 
   async function generateAuthKey(): Promise<string> {
     const expiration = new Date(Date.now() + 5 * 60_000);
@@ -122,6 +129,9 @@ export async function createAgentManager(
 
     if (authKey) {
       env.HEADPLANE_AGENT_TS_AUTHKEY = authKey;
+      log.info("agent", "Spawning agent with pre-auth key (prefix: %s)", authKey.slice(0, 16));
+    } else {
+      log.info("agent", "Spawning agent without pre-auth key (reusing existing state)");
     }
 
     const child = spawn(executablePath, [], {
@@ -131,8 +141,40 @@ export async function createAgentManager(
 
     child.stderr?.on("data", (chunk: Buffer) => {
       const text = chunk.toString().trim();
-      if (text) {
-        log.debug("agent", "%s", text);
+      if (!text) {
+        return;
+      }
+
+      log.debug("agent", "%s", text);
+
+      // tsnet prints an auth URL when it falls back to interactive login.
+      // Capture it so the UI can surface the approval link if needed, and try
+      // to auto-approve the agent using Headplane's admin API access.
+      const authMatch = text.match(
+        /To start this tsnet server, restart with TS_AUTHKEY set, or go to: (https:\/\/\S+)/,
+      );
+      if (authMatch) {
+        state.authUrl = authMatch[1];
+        log.warn("agent", "Agent is waiting for interactive approval; visit: %s", state.authUrl);
+
+        const authId = state.authUrl.split("/").pop();
+        if (authId && authId !== approvingAuthId) {
+          approvingAuthId = authId;
+          log.info("agent", "Attempting to auto-approve auth request %s", authId);
+          apiClient.auth
+            .approve(authId)
+            .then(() => {
+              log.info("agent", "Auto-approved auth request %s", authId);
+            })
+            .catch((error) => {
+              log.warn(
+                "agent",
+                "Failed to auto-approve auth request %s: %s",
+                authId,
+                error instanceof Error ? error.message : String(error),
+              );
+            });
+        }
       }
     });
 
@@ -148,6 +190,13 @@ export async function createAgentManager(
     child.on("exit", (code, signal) => {
       if (!disposed) {
         log.warn("agent", "Agent process exited (code=%s, signal=%s)", code, signal);
+      } else {
+        log.info(
+          "agent",
+          "Agent process exited during disposal (code=%s, signal=%s)",
+          code,
+          signal,
+        );
       }
       proc = null;
 
@@ -169,13 +218,18 @@ export async function createAgentManager(
     }
 
     const stateExists = await hasExistingState(workDir);
+    const authKey = await generateAuthKey();
     if (stateExists) {
       log.debug("agent", "Reusing existing tsnet identity");
-      return spawnAgent("");
+      log.info(
+        "agent",
+        "Existing state found; agent will use it and fall back to the pre-auth key if needed",
+      );
+    } else {
+      log.info("agent", "No tsnet state found, agent will register with a pre-auth key");
     }
 
-    log.info("agent", "No tsnet state found, generating pre-auth key");
-    return spawnAgent(await generateAuthKey());
+    return spawnAgent(authKey);
   }
 
   function sendSync(child: ChildProcess): Promise<string> {
@@ -214,10 +268,9 @@ export async function createAgentManager(
         log.error("agent", "Sync error from agent (%d/5): %s", consecutiveErrors, output.error);
 
         if (consecutiveErrors >= 5 && proc) {
-          log.warn("agent", "Too many consecutive errors, killing agent and clearing state");
+          log.warn("agent", "Too many consecutive errors, killing agent process for retry");
           proc.kill("SIGTERM");
           proc = null;
-          await rm(join(workDir, "tailscaled.state"), { force: true });
         }
         return;
       }
@@ -258,8 +311,10 @@ export async function createAgentManager(
       log.error("agent", "Sync failed (%d/5): %s", consecutiveErrors, message);
 
       if (consecutiveErrors >= 5) {
-        log.warn("agent", "Too many consecutive failures, clearing state for next attempt");
-        await rm(join(workDir, "tailscaled.state"), { force: true });
+        log.warn(
+          "agent",
+          "Too many consecutive failures; agent state is being preserved to avoid creating a new host",
+        );
       }
     } finally {
       isSyncing = false;
@@ -342,6 +397,7 @@ export async function createAgentManager(
         syncedAt: state.syncedAt,
         nodeCount: state.nodeCount,
         error: state.error,
+        authUrl: state.authUrl,
       };
     },
 
