@@ -1,0 +1,78 @@
+# Bun experiment lane (Phase 1, non-blocking).
+#
+# Hypothesis: running the production build under Bun lowers production
+# memory with equivalent behavior. This workflow replays the Node-oracle
+# runtime contracts (tests/runtime) with HP_TEST_RUNTIME=bun so the
+# identical black-box suite gates both runtimes.
+#
+# This lane is intentionally informational: it is non-blocking
+# (continue-on-error) and never replaces or weakens the required Node
+# workflow in build.yaml. Node and pnpm remain the package manager,
+# builder, and typechecker; only the runtime executing the already-built
+# server is swapped for the experiment step.
+
+name: Bun Experiment
+
+on:
+  push:
+    branches:
+      - "feature/bun-migration"
+  pull_request:
+    branches:
+      - "main"
+
+concurrency:
+  group: bun-experiment-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bun-experiment:
+    name: Bun experiment (non-blocking)
+    runs-on: ubuntu-latest
+    # Informational only: a red lane must never block merges.
+    continue-on-error: true
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.1"
+
+      - name: Build with Node/pnpm (unchanged)
+        run: ./build.sh --skip-pnpm-prune
+
+      - name: Typecheck with Node (unchanged)
+        run: pnpm run typecheck
+
+      - name: Unit tests with Node/pnpm (unchanged)
+        run: pnpm run test:unit
+
+      - name: Runtime contracts under Node (oracle baseline)
+        run: pnpm run test:runtime
+
+      - name: Runtime contracts under Bun (experiment)
+        env:
+          HP_TEST_RUNTIME: bun
+        run: pnpm run test:runtime
