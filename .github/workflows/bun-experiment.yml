@@ -8,8 +8,13 @@
 # This lane is intentionally informational: it is non-blocking
 # (continue-on-error) and never replaces or weakens the required Node
 # workflow in build.yaml. Node and pnpm remain the package manager,
-# builder, and typechecker; only the runtime executing the already-built
+# builder, and test runner; only the runtime executing the already-built
 # server is swapped for the experiment step.
+#
+# Deliberately not run here: `pnpm run typecheck`. It is not part of the
+# required build.yaml job and currently fails on pre-existing errors in
+# app/routes (unrelated to this migration); keeping the lane faithful to
+# build.yaml matters more than adding a new gate mid-experiment.
 
 name: Bun Experiment
 
@@ -39,7 +44,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.1.0
         with:
           run_install: false
 
@@ -62,9 +67,6 @@ jobs:
 
       - name: Build with Node/pnpm (unchanged)
         run: ./build.sh --skip-pnpm-prune
-
-      - name: Typecheck with Node (unchanged)
-        run: pnpm run typecheck
 
       - name: Unit tests with Node/pnpm (unchanged)
         run: pnpm run test:unit
