@@ -185,7 +185,10 @@ describe("Docker integration discovery contract", () => {
       if (url === "/version") {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ApiVersion: "1.44" }));
-      } else if (url.startsWith("/v1.44/containers/json")) {
+      } else if (url.includes("/containers/json")) {
+        // getContainerName() queries the unprefixed path while
+        // isAvailable() uses the versioned /v1.44 path; the real daemon
+        // answers both.
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify([{ Id: "abc123", Names: ["/headscale"] }]));
       } else {
