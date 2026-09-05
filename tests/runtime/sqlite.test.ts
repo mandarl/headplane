@@ -61,12 +61,15 @@ describe("SQLite contract", () => {
   });
 
   test("a failed transaction rolls back", async () => {
-    await expect(
-      db.transaction(async (tx) => {
-        await tx.insert(users).values({ id: "u-rollback", sub: "sub-rollback" });
+    // drizzle's node-sqlite driver is synchronous: the transaction
+    // callback must be sync (an async callback's rejection is never
+    // awaited, so the transaction commits instead of rolling back).
+    expect(() =>
+      db.transaction((tx) => {
+        tx.insert(users).values({ id: "u-rollback", sub: "sub-rollback" });
         throw new Error("boom");
       }),
-    ).rejects.toThrow("boom");
+    ).toThrow("boom");
 
     const rows = await db.select().from(users).where(eq(users.id, "u-rollback"));
     expect(rows).toEqual([]);
