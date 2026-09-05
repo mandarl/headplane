@@ -52,6 +52,18 @@ export default defineConfig({
           testTimeout: 60_000,
         },
       },
+      {
+        extends: true,
+        test: {
+          // Runtime contracts: black-box tests against the production
+          // build. Run with the default Node runtime via
+          // `pnpm run test:runtime`, or against another JS runtime with
+          // HP_TEST_RUNTIME=<bin> (used by the Bun experiment lane).
+          name: "runtime",
+          include: ["tests/runtime/**/*.test.ts"],
+          testTimeout: 120_000,
+        },
+      },
     ],
     env: {
       HEADPLANE_DEBUG_LOG: "true",

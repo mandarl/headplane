@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.1.0
         with:
           run_install: false
 
@@ -51,6 +51,11 @@ jobs:
 
       - name: Run integration tests
         run: pnpm run test:integration
+
+      - name: Run runtime contracts
+        # Black-box contracts against the production build artifact; the
+        # same suite runs under Bun in the bun-experiment lane.
+        run: pnpm run test:runtime
 
   nix:
     name: Nix Flake Check
