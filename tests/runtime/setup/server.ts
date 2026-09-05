@@ -13,10 +13,11 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
+import { get as httpsGet } from "node:https";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createServer } from "node:net";
-import { setTimeout } from "node:timers/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -46,6 +47,8 @@ export interface TestServer {
 
 export interface StartOptions {
   extraEnv?: Record<string, string>;
+  /** The server boots with TLS termination; poll its health over HTTPS. */
+  tls?: boolean;
 }
 
 /** Minimal env-only configuration shared by all runtime contract servers. */
@@ -97,7 +100,9 @@ export function waitForExit(
       reject(new Error(`timed out after ${timeoutMs}ms waiting for process exit`));
     }, timeoutMs);
     // The timer alone must not hold the test runner open.
-    timer.unref?.();
+    // NOTE: this must be the global callback-style setTimeout (a real
+    // timer handle), not the promisified node:timers/promises one.
+    timer.unref();
     const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
       clearTimeout(timer);
       resolvePromise({ code, signal });
@@ -109,15 +114,29 @@ export function waitForExit(
 async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
+  // TLS-enabled servers present self-signed test certificates; bypass
+  // verification the same way the TLS contract's own client does.
+  const insecureTls = url.startsWith("https://");
   while (Date.now() < deadline) {
     try {
-      // Any HTTP response — including 500 from /healthz when Headscale is
-      // unreachable — proves the server pipeline is accepting traffic.
-      await fetch(url, { redirect: "manual" });
+      if (insecureTls) {
+        await new Promise<void>((resolvePromise, reject) => {
+          const req = httpsGet(url, { rejectUnauthorized: false }, (res) => {
+            res.resume();
+            res.once("end", () => resolvePromise());
+          });
+          req.once("error", reject);
+          req.end();
+        });
+      } else {
+        // Any HTTP response — including 500 from /healthz when Headscale is
+        // unreachable — proves the server pipeline is accepting traffic.
+        await fetch(url, { redirect: "manual" });
+      }
       return;
     } catch (error) {
       lastError = error;
-      await setTimeout(250);
+      await sleep(250);
     }
   }
   throw new Error(
@@ -128,7 +147,9 @@ async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
 export async function startTestServer(options: StartOptions = {}): Promise<TestServer> {
   const dir = await mkdtemp(join(tmpdir(), "headplane-runtime-test-"));
   const port = await getFreePort();
-  const baseUrl = `http://127.0.0.1:${port}${PREFIX}`;
+  // A TLS-enabled server terminates HTTPS only; poll the matching scheme.
+  const scheme = options.tls ? "https" : "http";
+  const baseUrl = `${scheme}://127.0.0.1:${port}${PREFIX}`;
 
   const env = testEnv(dir, port, options.extraEnv);
 

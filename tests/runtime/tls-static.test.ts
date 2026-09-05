@@ -71,6 +71,9 @@ describe.skipIf(!runnable)("TLS and static-file contract", () => {
     );
 
     server = await startTestServer({
+      // The server terminates TLS only when cert+key are configured, so
+      // poll its health over HTTPS.
+      tls: true,
       extraEnv: {
         HEADPLANE_SERVER__TLS_CERT_PATH: cert,
         HEADPLANE_SERVER__TLS_KEY_PATH: key,
