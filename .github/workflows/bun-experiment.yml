@@ -15,6 +15,9 @@
 # required build.yaml job and currently fails on pre-existing errors in
 # app/routes (unrelated to this migration); keeping the lane faithful to
 # build.yaml matters more than adding a new gate mid-experiment.
+#
+# Spike results and the incompatibility log live in
+# docs/development/bun-migration.md.
 
 name: Bun Experiment
 
