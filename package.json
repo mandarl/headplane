@@ -12,6 +12,7 @@
     "typecheck": "react-router typegen && tsgo",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration:*",
+    "test:runtime": "vitest run --project runtime",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",

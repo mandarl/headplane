@@ -52,6 +52,11 @@ jobs:
       - name: Run integration tests
         run: pnpm run test:integration
 
+      - name: Run runtime contracts
+        # Black-box contracts against the production build artifact; the
+        # same suite runs under Bun in the bun-experiment lane.
+        run: pnpm run test:runtime
+
   nix:
     name: Nix Flake Check
     runs-on: ubuntu-latest
