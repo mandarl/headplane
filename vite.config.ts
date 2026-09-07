@@ -73,7 +73,12 @@ export default defineConfig(({ command, isSsrBuild }) => ({
             // `build/server/index.js`. It transitively imports the
             // SSR entry, which pulls in the React Router server build
             // via the virtual module `virtual:react-router/server-build`.
-            input: isSsrBuild ? PROD_ENTRY : undefined,
+            //
+            // Not applied to the SPA build (`ssr: false`): there the
+            // "server build" only exists so React Router can prerender
+            // `index.html`, and it must keep its default virtual entry
+            // for the plugin's manifest lookup to find it.
+            input: isSsrBuild && process.env.HEADPLANE_SPA_BUILD !== "1" ? PROD_ENTRY : undefined,
 
             // Exclude WASM from the client since it fetches from the server
             external: isSsrBuild ? [] : [/\.wasm(\?url)?$/],

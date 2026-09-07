@@ -9,12 +9,10 @@ import Link from "~/components/link";
 import Notice from "~/components/notice";
 import PageError from "~/components/page-error";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "~/components/tabs";
-import { isApiError } from "~/server/headscale/api/error-client";
+import { apiAction, apiGet } from "~/lib/api";
 import toast from "~/utils/toast";
 
 import type { Route } from "./+types/overview";
-import { aclAction } from "./acl-action";
-import { aclLoader } from "./acl-loader";
 import Fallback from "./components/fallback";
 
 const LazyEditor = lazy(() =>
@@ -24,12 +22,41 @@ const LazyDiffer = lazy(() =>
   import("./components/cm.client").then((m) => ({ default: m.Differ })),
 );
 
-export const loader = aclLoader;
-export const action = aclAction;
+// Shape of GET /admin/api/v1/acls (see the Phase 0 routes contract).
+interface AclData {
+  access: boolean;
+  writable: boolean;
+  policy: string;
+}
+
+export async function clientLoader(): Promise<AclData> {
+  // Auth gates stay server-side: apiGet throws redirect("/login") on 401 and
+  // Error (→ ErrorBoundary) on other failures, mirroring the old loader.
+  return apiGet<AclData>("/acls");
+}
+
+// Response shapes of PATCH /admin/api/v1/acls (see the Phase 0 routes contract).
+type AclActionResult =
+  | { success: true; error?: undefined; policy: string; updatedAt: string | null }
+  | { success: false; error: string; policy: null; updatedAt: null };
+
+export async function clientAction({ request }: Route.ClientActionArgs) {
+  // The UI submits with `fetcher.submit(form, { method: "PATCH" })`; apiAction
+  // forwards the PATCH and mirrors RR action `data()` semantics for useActionData.
+  const result = await apiAction<AclActionResult>("/acls", await request.formData(), "PATCH");
+  if (result.success) {
+    // The JSON contract returns `error: null` on success, but the old action
+    // returned `error: undefined` (dropped by turbo-stream serialization) and
+    // the component checks `error !== undefined`. Normalize so the error
+    // Notice doesn't render (and `.split` never runs on null).
+    result.error = undefined;
+  }
+  return result;
+}
 
 export default function Page({ loaderData: { access, writable, policy } }: Route.ComponentProps) {
   const [codePolicy, setCodePolicy] = useState(policy);
-  const fetcher = useFetcher<typeof action>();
+  const fetcher = useFetcher<typeof clientAction>();
   const { revalidate } = useRevalidator();
   const disabled = !access || !writable; // Disable if no permission or not writable
 
@@ -154,10 +181,29 @@ export default function Page({ loaderData: { access, writable, policy } }: Route
   );
 }
 
+// Local copy of the `isApiError` guard from
+// ~/server/headscale/api/error-client — this module must not import
+// server-only code.
+function isHeadscaleApiError(error: unknown): error is {
+  requestUrl: string;
+  statusCode: number;
+  rawData: string;
+  data: Record<string, unknown> | null;
+} {
+  return (
+    error != null &&
+    typeof error === "object" &&
+    "requestUrl" in error &&
+    "statusCode" in error &&
+    "rawData" in error &&
+    "data" in error
+  );
+}
+
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   if (
     isRouteErrorResponse(error) &&
-    isApiError(error.data) &&
+    isHeadscaleApiError(error.data) &&
     error.data.rawData.includes("reading policy from path") &&
     error.data.rawData.includes("no such file or directory")
   ) {

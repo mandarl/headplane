@@ -1,61 +1,43 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
 
 import Code from "~/components/code";
 import Notice from "~/components/notice";
 import PageError from "~/components/page-error";
-import type { AppContext } from "~/server/context";
-import { Capabilities } from "~/server/web/roles";
+import { apiAction, apiGet } from "~/lib/api";
 
+import type { Route } from "./+types/overview";
 import ManageDomains from "./components/manage-domains";
 import ManageNS from "./components/manage-ns";
 import ManageRecords from "./components/manage-records";
 import RenameTailnet from "./components/rename-tailnet";
 import ToggleMagic from "./components/toggle-magic";
-import { dnsAction } from "./dns-actions";
 
-// We do not want to expose every config value
-export async function loader({ request, context }: LoaderFunctionArgs<AppContext>) {
-  if (!context.hs.readable()) {
-    throw new Error("No configuration is available");
-  }
-
-  const principal = await context.auth.require(request);
-  const check = context.auth.can(principal, Capabilities.read_network);
-  if (!check) {
-    // Not authorized to view this page
-    throw new Error(
-      "You do not have permission to view this page. Please contact your administrator.",
-    );
-  }
-
-  const writablePermission = context.auth.can(principal, Capabilities.write_network);
-
-  const config = context.hs.c!;
-  const dns = {
-    prefixes: config.prefixes,
-    magicDns: config.dns.magic_dns,
-    baseDomain: config.dns.base_domain,
-    nameservers: config.dns.nameservers.global,
-    splitDns: config.dns.nameservers.split,
-    searchDomains: config.dns.search_domains,
-    overrideDns: config.dns.override_local_dns,
-    extraRecords: context.hs.d,
-  };
-
-  return {
-    ...dns,
-    access: writablePermission,
-    writable: context.hs.writable(),
-  };
+// Shape of GET /admin/api/v1/dns (see the Phase 0 routes contract).
+interface DnsData {
+  prefixes: string[];
+  magicDns: boolean;
+  baseDomain: string;
+  nameservers: string[];
+  splitDns: Record<string, string[]>;
+  searchDomains: string[];
+  overrideDns: boolean;
+  extraRecords: { name: string; type: "A" | "AAAA"; value: string }[];
+  access: boolean;
+  writable: boolean;
 }
 
-export async function action(data: ActionFunctionArgs) {
-  return dnsAction(data);
+export async function clientLoader(): Promise<DnsData> {
+  // Auth gates stay server-side: apiGet throws redirect("/login") on 401 and
+  // Error (→ ErrorBoundary) on other failures, mirroring the old loader.
+  return apiGet<DnsData>("/dns");
+}
+
+export async function clientAction({ request }: Route.ClientActionArgs) {
+  return apiAction("/dns/actions", await request.formData());
 }
 
 export default function Page() {
-  const data = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof clientLoader>();
 
   const allNs: Record<string, string[]> = {};
   for (const key of Object.keys(data.splitDns)) {

@@ -5,6 +5,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  createCookie,
   unstable_useRoute as useRoute,
 } from "react-router";
 
@@ -16,7 +17,7 @@ import { ErrorBanner } from "./components/error-banner";
 
 import "@fontsource-variable/inter/opsz.css";
 import "./tailwind.css";
-import { getColorScheme } from "./utils/color-scheme";
+import { type ColorScheme, isValidColorScheme } from "./utils/color-scheme";
 
 export const meta: MetaFunction = () => [
   { title: "Headplane" },
@@ -26,9 +27,35 @@ export const meta: MetaFunction = () => [
   },
 ];
 
-export async function loader({ request }: Route.LoaderArgs) {
-  const colorScheme = await getColorScheme(request);
-  return { colorScheme };
+// The color-scheme cookie is unsigned (same attributes as the server-side
+// `getColorScheme`), so the SPA can read it straight from `document.cookie`.
+// `Request.headers` never carries cookies in the browser, hence no `request`
+// parameter here.
+const colorSchemeCookie = createCookie("color_scheme", {
+  maxAge: 34560000,
+  sameSite: "lax",
+});
+
+export async function clientLoader(): Promise<{ colorScheme: ColorScheme }> {
+  const parsed = await colorSchemeCookie.parse(document.cookie || null);
+  const colorScheme = (parsed as { colorScheme?: unknown } | null)?.colorScheme;
+  return { colorScheme: isValidColorScheme(colorScheme) ? colorScheme : "system" };
+}
+
+export function HydrateFallback() {
+  return (
+    <html lang="en">
+      <head>
+        <meta charSet="utf-8" />
+        <meta content="width=device-width, initial-scale=1" name="viewport" />
+      </head>
+      <body className="w-full overflow-x-hidden overscroll-none dark:bg-mist-900 dark:text-mist-50">
+        <div className="flex h-screen w-screen items-center justify-center">
+          <p className="text-sm text-mist-500 dark:text-mist-400">Loading Headplane…</p>
+        </div>
+      </body>
+    </html>
+  );
 }
 
 export function Layout({ children }: { readonly children: React.ReactNode }) {

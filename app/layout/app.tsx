@@ -1,11 +1,8 @@
-import { Outlet, redirect, type ShouldRevalidateFunction } from "react-router";
+import { Outlet, type ShouldRevalidateFunction } from "react-router";
 
 import { ErrorBanner } from "~/components/error-banner";
 import StatusBanner from "~/components/status-banner";
-import { isDataUnauthorizedError } from "~/server/headscale/api/error-client";
-import { usersResource } from "~/server/headscale/live-store";
-import { Capabilities } from "~/server/web/roles";
-import log from "~/utils/log";
+import { apiGet } from "~/lib/api";
 
 import type { Route } from "./+types/app";
 import Footer from "./footer";
@@ -29,75 +26,37 @@ export const shouldRevalidate: ShouldRevalidateFunction = ({
   return false;
 };
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  try {
-    const { principal, api } = await context.apiForRequest(request);
+export interface BootUser {
+  kind: "oidc" | "api_key";
+  subject: string;
+  name: string;
+  email?: string;
+  username?: string;
+  picture?: string;
+  headscaleUserId?: string | null;
+  role?: string;
+}
 
-    const user =
-      principal.kind === "oidc"
-        ? {
-            email: principal.profile.email,
-            name: principal.profile.name,
-            picture: principal.profile.picture,
-            subject: principal.user.subject,
-            username: principal.profile.username,
-          }
-        : { name: principal.displayName, subject: "api_key" };
+export interface BootData {
+  user: BootUser;
+  access: {
+    dns: boolean;
+    machines: boolean;
+    policy: boolean;
+    settings: boolean;
+    ui: boolean;
+    users: boolean;
+  };
+  baseUrl: string;
+  configAvailable: boolean;
+  isHealthy: boolean;
+  isDebug: boolean;
+}
 
-    // MARK: The session should stay valid if Headscale isn't healthy
-    const isHealthy = await context.headscale.health();
-    if (isHealthy) {
-      try {
-        await api.apiKeys.list();
-      } catch (error) {
-        if (isDataUnauthorizedError(error)) {
-          const displayName =
-            principal.kind === "oidc" ? principal.profile.name : principal.displayName;
-          log.warn("auth", "Logging out %s due to expired API key", displayName);
-          return redirect("/login", {
-            headers: {
-              "Set-Cookie": await context.auth.destroySession(request),
-            },
-          });
-        }
-      }
-
-      // Self-heal: if the linked Headscale user was deleted, clear the
-      // stale link so the user gets prompted to re-link.
-      if (principal.kind === "oidc" && principal.user.headscaleUserId) {
-        try {
-          const usersSnap = await context.hsLive.get(usersResource, api);
-          if (!usersSnap.data.some((u) => u.id === principal.user.headscaleUserId)) {
-            await context.auth.unlinkHeadscaleUser(principal.user.id);
-          }
-        } catch {
-          // API call failed, skip validation
-        }
-      }
-    }
-
-    return {
-      access: {
-        dns: context.auth.can(principal, Capabilities.read_network),
-        machines: context.auth.can(principal, Capabilities.read_machines),
-        policy: context.auth.can(principal, Capabilities.read_policy),
-        settings: context.auth.can(principal, Capabilities.read_feature),
-        ui: context.auth.can(principal, Capabilities.ui_access),
-        users: context.auth.can(principal, Capabilities.read_users),
-      },
-      baseUrl: context.config.headscale.public_url ?? context.config.headscale.url,
-      configAvailable: context.hs.readable(),
-      isDebug: context.config.debug,
-      isHealthy,
-      user,
-    };
-  } catch {
-    return redirect("/login", {
-      headers: {
-        "Set-Cookie": await context.auth.destroySession(request),
-      },
-    });
-  }
+export async function clientLoader(): Promise<BootData> {
+  // 401 → apiGet throws redirect("/login"), mirroring the old server loader
+  // (which also destroyed the session and re-validated the Headscale key).
+  return apiGet<BootData>("/boot");
 }
 
 export default function AppLayout({ loaderData }: Route.ComponentProps) {

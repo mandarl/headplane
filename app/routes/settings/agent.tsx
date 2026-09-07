@@ -6,40 +6,31 @@ import Notice from "~/components/notice";
 import StatusCircle from "~/components/status-circle";
 import Text from "~/components/text";
 import Title from "~/components/title";
+import { apiAction, apiGet } from "~/lib/api";
 import { formatTimeDelta } from "~/utils/time";
 
 import type { Route } from "./+types/agent";
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  await context.auth.require(request);
+type AgentData =
+  | { enabled: false; reason: string }
+  | { enabled: true; syncedAt: string | null; nodeCount: number; error: string | null };
 
-  if (context.agents.state !== "enabled") {
-    return { enabled: false as const, reason: context.agents.reason };
-  }
-
-  const sync = context.agents.value.lastSync();
-  return {
-    enabled: true as const,
-    syncedAt: sync.syncedAt?.toISOString() ?? null,
-    nodeCount: sync.nodeCount,
-    error: sync.error,
-  };
+export async function clientLoader(): Promise<AgentData> {
+  return apiGet<AgentData>("/settings/agent");
 }
 
-export async function action({ request, context }: Route.ActionArgs) {
-  await context.auth.require(request);
-
-  if (context.agents.state !== "enabled") {
-    return { success: false, error: context.agents.reason };
-  }
-
-  await context.agents.value.triggerSync();
-  const sync = context.agents.value.lastSync();
-  return { success: !sync.error, error: sync.error };
+export async function clientAction({ request }: Route.ClientActionArgs) {
+  // The API returns HTTP 200 always with `{ success, error }`; the outcome is
+  // carried by `success` (not the status), so pass it through untouched —
+  // `success: false` must reach the component, not the error boundary.
+  return apiAction<{ success: boolean; error: string | null }>(
+    "/settings/agent/sync",
+    await request.formData(),
+  );
 }
 
 export default function Page({ loaderData }: Route.ComponentProps) {
-  const fetcher = useFetcher<typeof action>();
+  const fetcher = useFetcher<typeof clientAction>();
   const isSyncing = fetcher.state !== "idle";
 
   if (!loaderData.enabled) {

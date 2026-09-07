@@ -1,6 +1,5 @@
 import { CheckCircle, CircleSlash, Globe, Info, Pencil, UserCircle } from "lucide-react";
 import { useMemo, useState } from "react";
-import { data } from "react-router";
 
 import Attribute from "~/components/attribute";
 import Button from "~/components/button";
@@ -9,8 +8,8 @@ import Chip from "~/components/chip";
 import Link from "~/components/link";
 import StatusCircle from "~/components/status-circle";
 import Tooltip from "~/components/tooltip";
-import { nodesResource, usersResource } from "~/server/headscale/live-store";
-import { getServiceOverrides } from "~/server/service-overrides";
+import { apiAction, apiGet } from "~/lib/api";
+import type { HostInfo, User } from "~/types";
 import cn from "~/utils/cn";
 import {
   getOSInfo,
@@ -18,7 +17,7 @@ import {
   getTSVersion,
   isLinkableService,
 } from "~/utils/host-info";
-import { isNoExpiry, mapNodes, sortNodeTags } from "~/utils/node-info";
+import { isNoExpiry, type PopulatedNode } from "~/utils/node-info";
 import { getUserDisplayName } from "~/utils/user";
 
 import type { Route } from "./+types/machine";
@@ -26,65 +25,45 @@ import { mapTagsToComponents, uiTagsForNode } from "./components/machine-row";
 import MenuOptions from "./components/menu";
 import Routes from "./dialogs/routes";
 import ServiceDescription from "./dialogs/service-description";
-import { machineAction } from "./machine-actions";
 
-export async function loader({ request, params, context }: Route.LoaderArgs) {
-  if (!params.id) {
-    throw new Error("No machine ID provided");
-  }
+type MachineDetailData = {
+  agent: {
+    syncedAt: string | null;
+    nodeCount: number;
+    nodeKey?: string;
+  } | null;
+  existingTags: string[];
+  magic: string | null;
+  node: PopulatedNode;
+  rdpGatewayEnabled: boolean;
+  serviceOverrides: Record<
+    string,
+    { description: string; updatedBy: string | null; updatedAt: string | null }
+  >;
+  stats: HostInfo | null;
+  supportsNodeOwnerChange: boolean;
+  tags: string[];
+  users: User[];
+};
 
-  if (params.id.endsWith(".ico")) {
-    throw data(null, { status: 204 });
-  }
-
-  let magic: string | undefined;
-  if (context.hs.readable()) {
-    if (context.hs.c?.dns.magic_dns) {
-      magic = context.hs.c.dns.base_domain;
-    }
-  }
-
-  const { api } = await context.apiForRequest(request);
-  const [nodesSnap, usersSnap] = await Promise.all([
-    context.hsLive.get(nodesResource, api),
-    context.hsLive.get(usersResource, api),
-  ]);
-  const nodes = nodesSnap.data;
-  const users = usersSnap.data;
-  const node = nodes.find((node) => node.id === params.id);
-  if (node == null) {
-    throw data(null, { status: 404 });
-  }
-
-  const agents = context.agents.state === "enabled" ? context.agents.value : undefined;
-  const lookup = await agents?.lookup([node.nodeKey]);
-  const [enhancedNode] = mapNodes([node], lookup);
-  const tags = [...node.tags].toSorted();
-  const supportsNodeOwnerChange = !context.headscale.capabilities.nodeOwnerIsImmutable;
-  const agentSync = agents?.lastSync();
-  const serviceOverrides = await getServiceOverrides(context.db, enhancedNode.nodeKey);
-
+export async function clientLoader({ params }: Route.ClientLoaderArgs) {
+  // 400 (missing/.ico id) and 404 (unknown node) come back as non-2xx, so
+  // `apiGet` throws into the route ErrorBoundary — same as the old loader's
+  // `data(null, { status: ... })` throws.
+  const data = await apiGet<MachineDetailData>(`/machines/${params.id}`);
+  // Same null→undefined normalization as the overview clientLoader: the
+  // wire contract uses `null` where the old server loader returned
+  // `undefined` (agent, magic).
   return {
-    agent: agentSync
-      ? {
-          syncedAt: agentSync.syncedAt?.toISOString() ?? null,
-          nodeCount: agentSync.nodeCount,
-          nodeKey: agents?.agentNodeKey(),
-        }
-      : undefined,
-    existingTags: sortNodeTags(nodes),
-    magic,
-    node: enhancedNode,
-    rdpGatewayEnabled: context.rdpGateway.state === "enabled",
-    serviceOverrides,
-    stats: lookup?.[enhancedNode.nodeKey],
-    supportsNodeOwnerChange: supportsNodeOwnerChange,
-    tags,
-    users,
+    ...data,
+    agent: data.agent ?? undefined,
+    magic: data.magic ?? undefined,
   };
 }
 
-export const action = machineAction;
+export async function clientAction({ request }: Route.ClientActionArgs) {
+  return apiAction("/machines/actions", await request.formData());
+}
 
 export default function Page({
   loaderData: {
