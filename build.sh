@@ -17,6 +17,7 @@ BUILD_APP=0
 BUILD_AGENT=0
 BUILD_FAKE_SHELL=0
 BUILD_HEALTHCHECK=0
+BUILD_SERVER=0
 BUILD_SPA=0
 BUILD_SSR_PROXY=0
 SKIP_PATH_CHECKS=0
@@ -28,6 +29,7 @@ RDP_WASM_OUTPUT="$PUBLIC_DIR/hp_rdp.wasm"
 AGENT_OUTPUT="$BUILD_DIR/hp_agent"
 FAKE_SHELL_OUTPUT="$BUILD_DIR/hp_fake_sh"
 HEALTHCHECK_OUTPUT="$BUILD_DIR/hp_healthcheck"
+SERVER_OUTPUT="$BUILD_DIR/hp_server"
 
 die() { echo "error: $*" >&2; exit 1; }
 run() { echo ">> $*"; "$@"; }
@@ -39,6 +41,7 @@ while [ $# -gt 0 ]; do
 		--agent) BUILD_AGENT=1 ;;
 		--fake-shell) BUILD_FAKE_SHELL=1 ;;
 		--healthcheck) BUILD_HEALTHCHECK=1 ;;
+		--server) BUILD_SERVER=1 ;;
 		--spa) BUILD_SPA=1 ;;
 		--ssr-proxy) BUILD_SSR_PROXY=1 ;;
 		--interim) BUILD_SPA=1; BUILD_SSR_PROXY=1 ;;
@@ -76,6 +79,12 @@ while [ $# -gt 0 ]; do
 			HEALTHCHECK_OUTPUT=$1
 			;;
 
+		--server-output)
+			shift
+			[ $# -gt 0 ] || die "--server-output requires a path"
+			SERVER_OUTPUT=$1
+			;;
+
 		--help)
 			cat <<EOF
 Usage: $0 [flags]
@@ -87,6 +96,7 @@ Usage: $0 [flags]
   --agent                      build tailscale agent
   --fake-shell                 build fake shell binary (for Docker)
   --healthcheck                build healthcheck binary
+  --server                     build Go API server (Phase 1+ skeleton)
   --skip-path-checks           skip safety checks (ie. checking PATH)
   --skip-pnpm-prune            skip pruning devDependencies from node_modules
   --app-install-only           only install app dependencies, skip build
@@ -129,6 +139,7 @@ if [ "$SKIP_PATH_CHECKS" -eq 0 ]; then
 	[ "$BUILD_AGENT" -eq 1 ] && need_go=1
 	[ "$BUILD_FAKE_SHELL" -eq 1 ] && need_go=1
 	[ "$BUILD_HEALTHCHECK" -eq 1 ] && need_go=1
+	[ "$BUILD_SERVER" -eq 1 ] && need_go=1
 
 	if [ $need_go -eq 1 ]; then
 		echo "==> Checking for Go toolchain"
@@ -240,6 +251,14 @@ build_healthcheck() {
 	go build -o "$HEALTHCHECK_OUTPUT" ./cmd/hp_healthcheck
 }
 
+# Phase 1+ (Go server): build the Go API server skeleton. It serves the SPA
+# static bundle and /healthz; later phases add auth, OIDC, and the JSON API.
+build_server() {
+	echo "==> Building Go API server → $SERVER_OUTPUT"
+	mkdir -p "$(dirname "$SERVER_OUTPUT")"
+	go build -o "$SERVER_OUTPUT" ./cmd/hp_server
+}
+
 # Phase 0 (SPA conversion): build the pruned SSR server that the interim
 # reverse proxy uses for the server-driven flows (login POST, OIDC,
 # SSH/RDP minting, /api/*). Output goes to build-ssr/server (not build/).
@@ -266,6 +285,7 @@ build_spa() {
 [ "$BUILD_AGENT" = 1 ] && build_agent
 [ "$BUILD_FAKE_SHELL" = 1 ] && build_fake_shell
 [ "$BUILD_HEALTHCHECK" = 1 ] && build_healthcheck
+[ "$BUILD_SERVER" = 1 ] && build_server
 # NOTE: the SSR proxy must build before the SPA — both use build/, and the
 # SPA build overwrites build/client afterwards.
 [ "$BUILD_SSR_PROXY" = 1 ] && build_ssr_proxy
