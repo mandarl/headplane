@@ -31,8 +31,6 @@ const serverOnlyRoutes = SPA_BUILD
       route("/logout", "routes/auth/logout.ts"),
       route("/oidc/callback", "routes/auth/oidc-callback.ts"),
       route("/oidc/start", "routes/auth/oidc-start.ts"),
-      route("/ssh/:id", "routes/ssh/page.tsx"),
-      route("/rdp/:id", "routes/rdp/page.tsx"),
     ];
 
 export default [
@@ -45,6 +43,12 @@ export default [
   // accepts — see the comment there), so both builds register this module.
   // Its clientAction forwards the form to the server endpoint instead.
   route("/login", "routes/auth/login/page.tsx"),
+
+  // Full-screen browser SSH/RDP terminals. Client-rendered; their
+  // clientLoaders fetch /api/v1/{ssh,rdp}/:id (Go server mints the
+  // 5-minute ephemeral pre-auth key). Outside the app chrome layout.
+  route("/ssh/:id", "routes/ssh/page.tsx"),
+  route("/rdp/:id", "routes/rdp/page.tsx"),
 
   // All the main logged-in routes
   layout("layout/app.tsx", [

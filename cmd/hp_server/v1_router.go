@@ -60,6 +60,10 @@ func (s *Server) serveAPIv1(w http.ResponseWriter, r *http.Request, rest string)
 		s.handleAgent(w, r)
 	case rest == "/settings/agent/sync" && method == http.MethodPost:
 		s.handleAgentSync(w, r)
+	case strings.HasPrefix(rest, "/ssh/") && method == http.MethodGet:
+		s.handleTerminal(w, r, "ssh", strings.TrimPrefix(rest, "/ssh/"))
+	case strings.HasPrefix(rest, "/rdp/") && method == http.MethodGet:
+		s.handleTerminal(w, r, "rdp", strings.TrimPrefix(rest, "/rdp/"))
 	case rest == "/dns/actions" && method == http.MethodPost:
 		s.handleDnsActions(w, r)
 	case rest == "/settings/restrictions/actions" && method == http.MethodPost:
@@ -84,5 +88,7 @@ func knownAPIPath(rest string) bool {
 		"/settings/agent", "/settings/agent/sync":
 		return true
 	}
-	return strings.HasPrefix(rest, "/machines/")
+	return strings.HasPrefix(rest, "/machines/") ||
+		strings.HasPrefix(rest, "/ssh/") ||
+		strings.HasPrefix(rest, "/rdp/")
 }
