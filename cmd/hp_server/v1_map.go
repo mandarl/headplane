@@ -9,12 +9,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/tale/headplane/internal/auth"
 	"github.com/tale/headplane/internal/hsapi"
 )
+
+// isExitRoute reports whether a route prefix is a default (exit-node)
+// route, matching the "::/0" / "0.0.0.0/0" checks in node-info.ts.
+func isExitRoute(prefix string) bool {
+	return prefix == "::/0" || prefix == "0.0.0.0/0"
+}
 
 // goZeroTimes mirrors GO_ZERO_TIMES: Headscale serializes the zero time in
 // a few shapes depending on version, all meaning "no expiry".
@@ -52,7 +59,39 @@ func populateNode(node hsapi.Node, stats map[string]json.RawMessage) map[string]
 
 	approved := strListOf(node["approvedRoutes"])
 	out["approvedRoutes"] = approved
-	out["customRouting"] = len(approved) > 0
+
+	// routes + customRouting mirror node-info.ts mapNodes: both are derived
+	// purely from availableRoutes + approvedRoutes. customRouting is an
+	// OBJECT the SPA reads directly (n.customRouting.exitRoutes.length,
+	// etc.) — every field is a non-nil slice/bool so it serializes as
+	// [] / false rather than null.
+	out["routes"] = available
+	exitRoutes := []string{}
+	subnetWaitingRoutes := []string{}
+	for _, r := range available {
+		switch {
+		case isExitRoute(r):
+			exitRoutes = append(exitRoutes, r)
+		case !slices.Contains(approved, r):
+			subnetWaitingRoutes = append(subnetWaitingRoutes, r)
+		}
+	}
+	exitApproved := false
+	subnetApprovedRoutes := []string{}
+	for _, r := range approved {
+		switch {
+		case isExitRoute(r):
+			exitApproved = true
+		case slices.Contains(available, r):
+			subnetApprovedRoutes = append(subnetApprovedRoutes, r)
+		}
+	}
+	out["customRouting"] = map[string]any{
+		"exitRoutes":           exitRoutes,
+		"exitApproved":         exitApproved,
+		"subnetApprovedRoutes": subnetApprovedRoutes,
+		"subnetWaitingRoutes":  subnetWaitingRoutes,
+	}
 
 	expiry := strOf(node["expiry"])
 	expired := false

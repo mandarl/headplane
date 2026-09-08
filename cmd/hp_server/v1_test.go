@@ -296,8 +296,25 @@ func TestV1Machines(t *testing.T) {
 	if len(n["availableRoutes"].([]any)) != 1 { // deduped
 		t.Fatalf("availableRoutes = %v", n["availableRoutes"])
 	}
-	if n["customRouting"] != true || n["expired"] != false {
-		t.Fatalf("node = %v", n)
+	if len(n["routes"].([]any)) != 1 {
+		t.Fatalf("routes = %v", n["routes"])
+	}
+	if n["expired"] != false {
+		t.Fatalf("expired = %v", n["expired"])
+	}
+	// customRouting must be the object the SPA reads
+	// (n.customRouting.exitRoutes.length, etc.), not a bool.
+	cr, ok := n["customRouting"].(map[string]any)
+	if !ok {
+		t.Fatalf("customRouting is %T, want object: %v", n["customRouting"], n["customRouting"])
+	}
+	if got := cr["subnetApprovedRoutes"].([]any); len(got) != 1 || got[0] != "10.0.0.0/24" {
+		t.Fatalf("customRouting.subnetApprovedRoutes = %v", cr["subnetApprovedRoutes"])
+	}
+	if cr["exitApproved"] != false ||
+		len(cr["exitRoutes"].([]any)) != 0 ||
+		len(cr["subnetWaitingRoutes"].([]any)) != 0 {
+		t.Fatalf("customRouting = %v", cr)
 	}
 	if body["supportsNodeOwnerChange"] != false { // 0.28.1: immutable
 		t.Fatalf("supportsNodeOwnerChange = %v", body["supportsNodeOwnerChange"])
