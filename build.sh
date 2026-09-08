@@ -44,7 +44,7 @@ while [ $# -gt 0 ]; do
 		--server) BUILD_SERVER=1 ;;
 		--spa) BUILD_SPA=1 ;;
 		--ssr-proxy) BUILD_SSR_PROXY=1 ;;
-		--interim) BUILD_SPA=1; BUILD_SSR_PROXY=1 ;;
+		--go) BUILD_SPA=1; BUILD_SERVER=1 ;;
 		--skip-path-checks) SKIP_PATH_CHECKS=1 ;;
 		--skip-pnpm-prune) SKIP_PNPM_PRUNE=1 ;;
 		--app-install-only) APP_INSTALL_ONLY=1 ;;
@@ -91,8 +91,8 @@ Usage: $0 [flags]
   --wasm                       build wasm module
   --app                        build react-router app
   --spa                        build static SPA (ssr:false) into build/
-  --ssr-proxy                  build SSR server for the interim proxy into build-ssr/
-  --interim                    build both --ssr-proxy and --spa (Phase 0 interim)
+  --ssr-proxy                  build SSR server for debugging into build-ssr/
+  --go                         build the full Go+SPA artifact: --spa and --server (Phase 6)
   --agent                      build tailscale agent
   --fake-shell                 build fake shell binary (for Docker)
   --healthcheck                build healthcheck binary
@@ -105,6 +105,7 @@ Usage: $0 [flags]
   --agent-output <path>        override agent output path
   --fake-shell-output <path>   override fake shell output path
   --healthcheck-output <path>  override healthcheck output path
+  --server-output <path>       override Go API server output path
 EOF
 			exit 0
 			;;
@@ -118,6 +119,7 @@ done
 # By default build everything except for the fake shell
 if [ "$BUILD_WASM" -eq 0 ] && [ "$BUILD_APP" -eq 0 ] && \
 	[ "$BUILD_AGENT" -eq 0 ] && [ "$BUILD_FAKE_SHELL" -eq 0 ] && \
+	[ "$BUILD_SERVER" -eq 0 ] && \
 	[ "$BUILD_SPA" -eq 0 ] && [ "$BUILD_SSR_PROXY" -eq 0 ]; then
 	BUILD_WASM=1
 	BUILD_APP=1
@@ -251,19 +253,23 @@ build_healthcheck() {
 	go build -o "$HEALTHCHECK_OUTPUT" ./cmd/hp_healthcheck
 }
 
-# Phase 1+ (Go server): build the Go API server skeleton. It serves the SPA
-# static bundle and /healthz; later phases add auth, OIDC, and the JSON API.
+# Phase 6 (Go server): build the Go API server. It serves the SPA static
+# bundle and the full JSON API (auth, OIDC, Headscale API layer, SSE,
+# remaining endpoints).
 # headplaneVersion (for /api/info) comes from IMAGE_TAG when set, else "dev".
 build_server() {
 	echo "==> Building Go API server → $SERVER_OUTPUT"
 	mkdir -p "$(dirname "$SERVER_OUTPUT")"
-	go build -ldflags="-X main.headplaneVersion=${IMAGE_TAG:-dev}" \
+	# CGO_ENABLED=0: the binary must be fully static to run on
+	# distroless/static (see the Dockerfile go-final stage).
+	CGO_ENABLED=0 go build -ldflags="-X main.headplaneVersion=${IMAGE_TAG:-dev}" \
 		-o "$SERVER_OUTPUT" ./cmd/hp_server
 }
 
-# Phase 0 (SPA conversion): build the pruned SSR server that the interim
-# reverse proxy uses for the server-driven flows (login POST, OIDC,
-# SSH/RDP minting, /api/*). Output goes to build-ssr/server (not build/).
+# Build the SSR server (ssr:true) into build-ssr/server. This was the
+# Phase 0 interim reverse-proxy target; it is kept as a debugging aid now
+# that the Go server is the production server (Phase 6 removed the interim
+# proxy itself).
 build_ssr_proxy() {
 	echo "==> Building SSR proxy server → $ROOT_DIR/build-ssr/server"
 	pnpm install --frozen-lockfile
@@ -274,12 +280,13 @@ build_ssr_proxy() {
 	echo "==> Run with: node $ROOT_DIR/build-ssr/server/index.js"
 }
 
-# Phase 0 (SPA conversion): build the static SPA (ssr:false) into build/.
+# Build the static SPA (ssr:false) into build/. Served by the Go server
+# (--server) via --client-dir; the Node production server no longer exists
+# on this branch's deployment path.
 build_spa() {
 	echo "==> Building SPA (ssr:false) → $BUILD_DIR"
 	pnpm install --frozen-lockfile
 	HEADPLANE_SPA_BUILD=1 pnpm run build
-	echo "==> Serve with: node $ROOT_DIR/server/interim.mjs"
 }
 
 [ "$BUILD_WASM" = 1 ] && build_wasm
@@ -287,10 +294,12 @@ build_spa() {
 [ "$BUILD_AGENT" = 1 ] && build_agent
 [ "$BUILD_FAKE_SHELL" = 1 ] && build_fake_shell
 [ "$BUILD_HEALTHCHECK" = 1 ] && build_healthcheck
-[ "$BUILD_SERVER" = 1 ] && build_server
 # NOTE: the SSR proxy must build before the SPA — both use build/, and the
 # SPA build overwrites build/client afterwards.
+# NOTE: the Go server must build after the SPA — the SPA build wipes build/
+# and would delete a previously built hp_server binary.
 [ "$BUILD_SSR_PROXY" = 1 ] && build_ssr_proxy
 [ "$BUILD_SPA" = 1 ] && build_spa
+[ "$BUILD_SERVER" = 1 ] && build_server
 
 echo "✅ Build complete."

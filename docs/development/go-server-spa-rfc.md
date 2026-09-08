@@ -1,6 +1,16 @@
 # RFC: Replace the Node server with a Go server; convert the React app from SSR to SPA
 
-**Status:** Draft — design only. No implementation in this proposal.
+**Status:** Implemented — all 7 phases landed on branch `rfc/go-server-spa`
+(PR #3, draft) 2026-09-07/08. Phase 0: SPA conversion. Phase 1: Go server
+skeleton. Phase 2: session/auth parity (byte-identical `_hp_auth`, interop
+tested). Phase 3: OIDC port (quirk-compatible, dex-tested). Phase 4:
+Headscale API layer + live store/SSE. Phase 5: remaining endpoints (RDP
+gateway, agent sync, config patching, integrations, `/api/info`). Phase 6:
+packaging (`build.sh --go`, Dockerfile `go-final`/`go-debug` stages,
+`nix/go-server.nix`), benchmarks (`bench/`), cutover/rollback docs
+(`docs/development/go-server-cutover.md`); the Phase 0 interim server was
+deleted. Cutover is gated on the stop rule in §9 — re-run `bench/` on
+deployment-class hardware before switching production.
 **Author:** Astro (agent) for mandarl
 **Date:** 2026-09-07
 
@@ -116,29 +126,29 @@ and vice versa. This is what makes rollback a plain redeploy.
 SPA calls it with `fetch(..., {credentials:"include"})`. “Stays server” =
 must remain a server-driven flow (never exposed to browser JS).
 
-| Method | Path (under `/admin`) | Current handler | Proposed target |
-|---|---|---|---|
-| GET | `/healthz` | `app/routes/util/healthz.ts` | Go endpoint (same 200/500 semantics) |
-| GET | `/events/live` | `app/routes/util/live.ts` (SSE) | Go SSE endpoint; Go owns the live-store subscription |
-| GET | `/api/info` | `app/routes/util/info.ts` (bearer `info_secret`) | Go endpoint; secret compared server-side only |
-| POST | `/api/color-scheme` | `app/routes/util/color-scheme.ts` | Go endpoint (sets cookie + 302) |
-| POST | `/api/rdp-gateway` | `app/routes/rdp-gateway/action.ts` | Go endpoint (webhook client port) |
-| POST | `/login` | `app/routes/auth/login/action.ts` (validates raw API key vs Headscale) | **Stays server** — Go endpoint issuing `_hp_auth`; browser never sees the key |
-| POST | `/logout` | `app/routes/auth/logout.ts` | **Stays server** — Go endpoint (session delete, optional OIDC end-session redirect) |
-| GET | `/oidc/start` | `app/routes/auth/oidc-start.ts` | **Stays server** — Go 302 + `__oidc_state` cookie |
-| GET | `/oidc/callback` | `app/routes/auth/oidc-callback.ts` | **Stays server** — Go token exchange + session issuance |
-| GET | `/` | `app/routes/home.tsx` loader | Static SPA shell; data via client fetch to Go API |
-| GET/POST | `/machines`, `/machines/:id` | `overview.tsx` / `machine.tsx` loaders + `machine-actions.ts` | Client fetch → Go JSON API (Headscale proxy) |
-| GET/POST | `/users` | `overview.tsx` loader + `user-actions.ts` | Client fetch → Go JSON API |
-| GET/POST | `/acls` | `acl-loader.ts` + `acl-action.ts` | Client fetch → Go JSON API |
-| GET/POST | `/dns` | `overview.tsx` loader + `dns-actions.ts` (config-file patch) | Client fetch → Go JSON API (Go needs config-file read/write + `hs.patch` equivalent) |
-| GET | `/settings` | `settings/overview.tsx` loader | Client fetch → Go JSON API (config flags) |
-| GET/POST | `/settings/auth-keys` | `overview.tsx` loader + `actions.ts` | Client fetch → Go JSON API |
-| GET/POST | `/settings/restrictions` | `overview.tsx` loader + `actions.ts` (config patch) | Client fetch → Go JSON API |
-| GET/POST | `/settings/agent` | `agent.tsx` loader + action (`triggerSync`) | Client fetch → Go JSON API (Go owns agent subprocess or equivalent) |
-| GET | `/ssh/:id` | `ssh/page.tsx` loader (mints 5-min pre-auth key) | **Stays server-shaped** — Go endpoint minting the key; SPA fetches it, never mints |
-| GET | `/rdp/:id` | `rdp/page.tsx` loader | Same as SSH |
-| GET/HEAD | `/assets/*`, other static | `runtime/http.ts` static handler | Go static file server (same cache headers, HEAD, traversal rules) |
+| Method   | Path (under `/admin`)        | Current handler                                                        | Proposed target                                                                      |
+| -------- | ---------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| GET      | `/healthz`                   | `app/routes/util/healthz.ts`                                           | Go endpoint (same 200/500 semantics)                                                 |
+| GET      | `/events/live`               | `app/routes/util/live.ts` (SSE)                                        | Go SSE endpoint; Go owns the live-store subscription                                 |
+| GET      | `/api/info`                  | `app/routes/util/info.ts` (bearer `info_secret`)                       | Go endpoint; secret compared server-side only                                        |
+| POST     | `/api/color-scheme`          | `app/routes/util/color-scheme.ts`                                      | Go endpoint (sets cookie + 302)                                                      |
+| POST     | `/api/rdp-gateway`           | `app/routes/rdp-gateway/action.ts`                                     | Go endpoint (webhook client port)                                                    |
+| POST     | `/login`                     | `app/routes/auth/login/action.ts` (validates raw API key vs Headscale) | **Stays server** — Go endpoint issuing `_hp_auth`; browser never sees the key        |
+| POST     | `/logout`                    | `app/routes/auth/logout.ts`                                            | **Stays server** — Go endpoint (session delete, optional OIDC end-session redirect)  |
+| GET      | `/oidc/start`                | `app/routes/auth/oidc-start.ts`                                        | **Stays server** — Go 302 + `__oidc_state` cookie                                    |
+| GET      | `/oidc/callback`             | `app/routes/auth/oidc-callback.ts`                                     | **Stays server** — Go token exchange + session issuance                              |
+| GET      | `/`                          | `app/routes/home.tsx` loader                                           | Static SPA shell; data via client fetch to Go API                                    |
+| GET/POST | `/machines`, `/machines/:id` | `overview.tsx` / `machine.tsx` loaders + `machine-actions.ts`          | Client fetch → Go JSON API (Headscale proxy)                                         |
+| GET/POST | `/users`                     | `overview.tsx` loader + `user-actions.ts`                              | Client fetch → Go JSON API                                                           |
+| GET/POST | `/acls`                      | `acl-loader.ts` + `acl-action.ts`                                      | Client fetch → Go JSON API                                                           |
+| GET/POST | `/dns`                       | `overview.tsx` loader + `dns-actions.ts` (config-file patch)           | Client fetch → Go JSON API (Go needs config-file read/write + `hs.patch` equivalent) |
+| GET      | `/settings`                  | `settings/overview.tsx` loader                                         | Client fetch → Go JSON API (config flags)                                            |
+| GET/POST | `/settings/auth-keys`        | `overview.tsx` loader + `actions.ts`                                   | Client fetch → Go JSON API                                                           |
+| GET/POST | `/settings/restrictions`     | `overview.tsx` loader + `actions.ts` (config patch)                    | Client fetch → Go JSON API                                                           |
+| GET/POST | `/settings/agent`            | `agent.tsx` loader + action (`triggerSync`)                            | Client fetch → Go JSON API (Go owns agent subprocess or equivalent)                  |
+| GET      | `/ssh/:id`                   | `ssh/page.tsx` loader (mints 5-min pre-auth key)                       | **Stays server-shaped** — Go endpoint minting the key; SPA fetches it, never mints   |
+| GET      | `/rdp/:id`                   | `rdp/page.tsx` loader                                                  | Same as SSH                                                                          |
+| GET/HEAD | `/assets/*`, other static    | `runtime/http.ts` static handler                                       | Go static file server (same cache headers, HEAD, traversal rules)                    |
 
 Security boundary, stated plainly: the browser must never hold a Headscale
 API key, a client secret, the `info_secret`, or the ability to mint
@@ -264,7 +274,7 @@ Estimates are for one experienced developer who knows the codebase. This is
 
 ---
 
-*Related: PR #2 (Bun migration, closed — Bun 1.4.1 measured +31% idle /
+_Related: PR #2 (Bun migration, closed — Bun 1.4.1 measured +31% idle /
 +55% load p95 RSS vs Node 24 on a GCE e2-micro); the `bench/` harness and
 `tests/runtime/` contracts from that branch are the measurement tools for
-this RFC's acceptance criteria.*
+this RFC's acceptance criteria._
