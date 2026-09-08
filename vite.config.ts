@@ -91,5 +91,10 @@ export default defineConfig(({ command, isSsrBuild }) => ({
   define: {
     __VERSION__: JSON.stringify(isNext ? `${VERSION}-next` : VERSION),
     __PREFIX__: JSON.stringify(PREFIX),
+    // Which server ships this bundle: the SPA build (HEADPLANE_SPA_BUILD=1)
+    // is served by the Go API server; the SSR build by the Node server.
+    __SERVER_KIND__: JSON.stringify(
+      process.env.HEADPLANE_SPA_BUILD === "1" ? "Go" : "Node",
+    ),
   },
 }));
