@@ -26,6 +26,10 @@ jobs:
             tag_suffix: ""
           - target: debug-shell
             tag_suffix: "-shell"
+          - target: go-final
+            tag_suffix: "-go"
+          - target: go-debug
+            tag_suffix: "-go-debug"
     steps:
       - name: Check out the repo
         uses: actions/checkout@v6
