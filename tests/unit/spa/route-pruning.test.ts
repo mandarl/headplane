@@ -1,7 +1,8 @@
 // Phase 0 (SPA conversion): the SPA build ships a pruned route tree —
-// server-driven flows (healthz, /api/*, /events/live, logout, OIDC,
-// ssh/rdp) stay on the Node server and are reached via the interim reverse
-// proxy, so they must not be SPA routes. The full build keeps them.
+// server-driven flows (healthz, /api/*, /events/live, logout, OIDC) stay
+// on the Node server, so they must not be SPA routes. The full build keeps
+// them. The browser SSH/RDP terminal pages ARE SPA routes (their
+// clientLoaders fetch /api/v1/{ssh,rdp}/:id on the Go server).
 import { describe, expect, test, vi } from "vitest";
 
 interface FlatRoute {
@@ -36,8 +37,6 @@ const SERVER_ONLY_FILES = [
   "routes/auth/logout.ts",
   "routes/auth/oidc-callback.ts",
   "routes/auth/oidc-start.ts",
-  "routes/ssh/page.tsx",
-  "routes/rdp/page.tsx",
 ];
 
 describe("SPA route pruning", () => {
@@ -55,6 +54,13 @@ describe("SPA route pruning", () => {
     expect(files).toContain("routes/auth/login/page.tsx");
     expect(files).toContain("routes/home.tsx");
     expect(files).toContain("routes/machines/overview.tsx");
+  });
+
+  test("SPA build keeps the browser SSH/RDP terminal routes", async () => {
+    const routes = await loadRoutes(true);
+    const byPath = new Map(routes.map((r) => [r.path, r.file]));
+    expect(byPath.get("/ssh/:id")).toBe("routes/ssh/page.tsx");
+    expect(byPath.get("/rdp/:id")).toBe("routes/rdp/page.tsx");
   });
 
   test("non-SPA build keeps the server-only route modules", async () => {
