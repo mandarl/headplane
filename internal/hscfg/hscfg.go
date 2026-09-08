@@ -1,13 +1,13 @@
-// Package hscfg ports app/server/config.ts (getHeadscaleConfig with its
-// arktype HeadscaleConfigSchema) into Go.
+// Package hscfg ports app/server/headscale/config-loader.ts (HeadscaleConfig)
+// and config-dns.ts (HeadscaleDNSConfig) into Go.
 //
-// The config YAML is read ONCE at startup — never watched, never written by
-// the server — and surfaced read-only. Access is three-state: "rw" when the
-// file parses and strictly validates, "ro" when it exists but doesn't
-// validate (or headscale isn't otherwise configurable), "no" when there is
-// no config file or it can't be read/parsed at all. DNS mutation, the agent
-// sync and everything that writes the config back lands in Phase 5; this
-// package only answers reads.
+// The config YAML is read ONCE at startup — never watched — and surfaced
+// through an extracted read view. Access is three-state: "rw" when the file
+// parses, strictly validates, and is writable; "ro" when it is readable but
+// not writable or does not strictly validate; "no" when there is no config
+// file or it can't be read/parsed at all. The parsed yaml.Node document is
+// retained so Patch can mutate the file in place while preserving comments
+// and formatting.
 package hscfg
 
 import (
@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"os"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -43,10 +44,20 @@ type OIDCSettings struct {
 	AllowedUsers   []string `json:"allowed_users"`
 }
 
-// Config is the read-only view of the Headscale config file. Zero value
-// means "no config" (access = "no").
+// Config is the view of the Headscale config file. Zero value means "no
+// config" (access = "no"). The unexported fields back the Phase 5 patch
+// engine: the file path, the retained yaml.Node document (comments and
+// formatting preserved across patches), and the separate DNS records file
+// state. mu serializes Patch/AddDNSRecord/RemoveDNSRecord.
 type Config struct {
-	access Access
+	mu sync.Mutex
+
+	access    Access
+	path      string
+	doc       *yaml.Node // retained parsed document; nil when unreadable/unparseable
+	dnsPath   string     // separate DNS records file path ("" when unconfigured)
+	dnsAccess Access     // access of the DNS records file (AccessNo when unconfigured)
+	logger    *slog.Logger
 
 	PrefixesV4  string              `json:"-"`
 	PrefixesV6  string              `json:"-"`
@@ -77,8 +88,8 @@ func (c *Config) Readable() bool {
 	return a == AccessRW || a == AccessRO
 }
 
-// Writable reports whether the config strictly validates (Phase 5 writes
-// would be safe).
+// Writable reports whether the config file strictly validates and is
+// writable — the gate for Patch and config-mode DNS mutation.
 func (c *Config) Writable() bool { return c.Access() == AccessRW }
 
 // DNSRecords mirrors the getRecords() helper in the DNS route: when a
@@ -94,12 +105,16 @@ func (c *Config) DNSRecords() []DNSRecord {
 	return c.ExtraRecords
 }
 
-// Load mirrors getHeadscaleConfig: read + parse the config file once at
-// startup and classify access. A missing/empty/unparseable file yields
-// access "no"; a parseable-but-invalid file yields "ro". dnsRecordsPath is
-// the path of the separate DNS records file ("" when unconfigured).
+// Load mirrors getHeadscaleConfig/loadHeadscaleConfig: read + parse the
+// config file once at startup and classify access. A missing/empty/
+// unparseable file yields access "no"; a parseable file that is not writable
+// or does not strictly validate yields "ro"; a writable, strictly valid
+// file yields "rw". The parsed yaml.Node document is retained for Patch.
+// dnsRecordsPath is the path of the separate DNS records file ("" when
+// unconfigured); the DNS file object exists whenever it is set, even when
+// the file is unreadable, mirroring loadHeadscaleDNS.
 func Load(path string, dnsRecordsPath string, logger *slog.Logger) *Config {
-	c := &Config{access: AccessNo}
+	c := &Config{access: AccessNo, dnsAccess: AccessNo, logger: logger}
 	if path == "" {
 		return c
 	}
@@ -110,20 +125,40 @@ func Load(path string, dnsRecordsPath string, logger *slog.Logger) *Config {
 		}
 		return c
 	}
-	var raw map[string]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
 		logger.Error("failed to parse Headscale config", "path", path, "error", err)
 		return c
 	}
+	c.path = path
+	c.doc = &doc
+
+	var raw map[string]any
+	_ = doc.Decode(&raw) // best effort; nil/odd roots fail strict validation below
+
 	c.access = AccessRO
-	if !strictlyValid(raw) {
+	valid := strictlyValid(raw)
+	if !valid {
 		logger.Error("Headscale config does not validate; read-only access", "path", path)
-		return c
+	} else if !probeWritable(path) {
+		logger.Warn("Headscale config is not writable; read-only access", "path", path)
+	} else {
+		c.access = AccessRW
 	}
-	c.access = AccessRW
 	c.extract(raw)
 	c.loadFileRecords(dnsRecordsPath, logger)
 	return c
+}
+
+// probeWritable mirrors the W_OK half of validateConfigPath: open for write
+// and close immediately, without touching the file.
+func probeWritable(path string) bool {
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	return true
 }
 
 // strictlyValid mirrors the required keys of the TS HeadscaleConfigSchema
@@ -174,6 +209,11 @@ func strictlyValid(raw map[string]any) bool {
 }
 
 func (c *Config) extract(raw map[string]any) {
+	// Reset the accumulated slices: extract runs on Load and again after
+	// every successful Patch, and must be idempotent.
+	c.ExtraRecords = nil
+	c.Nameservers = nil
+	c.SearchDomains = nil
 	dns, _ := raw["dns"].(map[string]any)
 	if dns == nil {
 		return
@@ -222,12 +262,24 @@ func (c *Config) extract(raw map[string]any) {
 	}
 }
 
-// loadFileRecords mirrors the getRecords() file branch: the separate DNS
-// records file (a JSON array of {name, type, value}) takes precedence over
-// the dns block when configured.
+// loadFileRecords mirrors the getRecords() file branch and loadHeadscaleDNS:
+// the separate DNS records file (a JSON array of {name, type, value}) takes
+// precedence over the dns block when configured. The DNS file state exists
+// whenever a path is configured, even when unreadable — that is what puts
+// AddDNSRecord/RemoveDNSRecord into file mode.
 func (c *Config) loadFileRecords(path string, logger *slog.Logger) {
 	if path == "" {
 		return
+	}
+	c.dnsPath = path
+	readable, writable := probeRW(path)
+	switch {
+	case readable && writable:
+		c.dnsAccess = AccessRW
+	case readable:
+		c.dnsAccess = AccessRO
+	default:
+		c.dnsAccess = AccessNo
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -240,6 +292,17 @@ func (c *Config) loadFileRecords(path string, logger *slog.Logger) {
 		return
 	}
 	c.FileRecords = recs
+}
+
+// probeRW mirrors validateConfigPath in config-dns.ts: read probe, then
+// write probe.
+func probeRW(path string) (readable, writable bool) {
+	if f, err := os.Open(path); err == nil {
+		readable = true
+		_ = f.Close()
+	}
+	writable = probeWritable(path)
+	return readable, writable
 }
 
 func boolOr(v any, def bool) bool {

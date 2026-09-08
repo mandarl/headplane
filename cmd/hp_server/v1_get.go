@@ -200,15 +200,23 @@ func (s *Server) handleMachines(w http.ResponseWriter, r *http.Request) {
 		magic = ptrOrNil(s.hsCfg.BaseDomain)
 	}
 
+	// Agent hostinfo, keyed by node key, layered onto the populated nodes
+	// (nil when the agent is disabled).
+	nodeKeys := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		nodeKeys = append(nodeKeys, strOf(n["nodeKey"]))
+	}
+	stats := s.agentStats(nodeKeys)
+
 	resp := map[string]any{
-		"agent":                   nil, // Phase 5: no agent integration yet
+		"agent":                   s.agentInfo(),
 		"headscaleUserId":         p.HeadscaleUserID,
 		"magic":                   magic,
 		"nodes":                   nodes,
-		"populatedNodes":          mapNodes(nodes),
+		"populatedNodes":          mapNodes(nodes, stats),
 		"preAuth":                 s.authSvc.Can(p, auth.CapGenerateAuthKeys),
 		"publicServer":            ptrOrNil(s.cfg.Headscale.PublicURL),
-		"rdpGatewayEnabled":       false, // Phase 5: no RDP gateway yet
+		"rdpGatewayEnabled":       s.rdpGw != nil,
 		"server":                  s.cfg.Headscale.URL,
 		"supportsNodeOwnerChange": !s.getHsCaps().NodeOwnerIsImmutable,
 		"users":                   users,
@@ -248,6 +256,7 @@ func (s *Server) handleMachine(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusNotFound, "Machine not found.")
 		return
 	}
+	nodeKey := strOf(found["nodeKey"])
 
 	var magic *string
 	if s.hsCfg.Readable() && s.hsCfg.MagicDNS {
@@ -272,18 +281,62 @@ func (s *Server) handleMachine(w http.ResponseWriter, r *http.Request, id string
 	sort.Strings(existingTags)
 
 	resp := map[string]any{
-		"agent":                   nil, // Phase 5: no agent integration yet
+		"agent":                   s.agentInfo(),
 		"existingTags":            existingTags,
 		"magic":                   magic,
-		"node":                    populateNode(found),
-		"rdpGatewayEnabled":       false, // Phase 5: no RDP gateway yet
-		"serviceOverrides":        map[string]any{},
-		"stats":                   nil, // Phase 5: no agent lookups yet
+		"node":                    populateNode(found, s.agentStats([]string{nodeKey})),
+		"rdpGatewayEnabled":       s.rdpGw != nil,
+		"serviceOverrides":        s.serviceOverridesFor(nodeKey),
+		"stats":                   s.nodeStats(nodeKey),
 		"supportsNodeOwnerChange": !s.getHsCaps().NodeOwnerIsImmutable,
 		"tags":                    nodeTags,
 		"users":                   users,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// serviceOverridesFor reshapes the stored overrides into the
+// Record<`${proto}:${port}`, {description, updatedBy, updatedAt}> shape the
+// machine page consumes.
+func (s *Server) serviceOverridesFor(nodeKey string) map[string]any {
+	out := map[string]any{}
+	if nodeKey == "" {
+		return out
+	}
+	ovs, err := s.authSvc.GetServiceOverrides(nodeKey)
+	if err != nil {
+		s.logger.Warn("get service overrides failed", "error", err)
+		return out
+	}
+	for k, ov := range ovs {
+		var updatedBy any
+		if ov.UpdatedBy != nil {
+			updatedBy = *ov.UpdatedBy
+		}
+		var updatedAt any
+		if ov.UpdatedAt != nil {
+			updatedAt = *ov.UpdatedAt
+		}
+		out[k] = map[string]any{
+			"description": ov.Description,
+			"updatedBy":   updatedBy,
+			"updatedAt":   updatedAt,
+		}
+	}
+	return out
+}
+
+// nodeStats returns the agent's hostinfo payload for one node key, or nil.
+func (s *Server) nodeStats(nodeKey string) any {
+	if nodeKey == "" {
+		return nil
+	}
+	if stats := s.agentStats([]string{nodeKey}); stats != nil {
+		if raw, ok := stats[nodeKey]; ok {
+			return raw
+		}
+	}
+	return nil
 }
 
 // handleUsers mirrors the users overview loader: Headplane users merged

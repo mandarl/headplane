@@ -8,6 +8,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -24,8 +25,11 @@ var goZeroTimes = map[string]bool{
 
 // populateNode mirrors populateNode in node-info.ts: it derives the
 // client-visible routing/expiry fields from the raw node object. The raw
-// node is kept verbatim under the same keys the TS spread kept.
-func populateNode(node hsapi.Node) map[string]any {
+// node is kept verbatim under the same keys the TS spread kept. stats is
+// the agent's hostinfo keyed by node key; the node's payload lands on
+// `hostInfo` (nil when the agent is disabled or has no data for the node),
+// mirroring mapNodes' stats argument.
+func populateNode(node hsapi.Node, stats map[string]json.RawMessage) map[string]any {
 	out := make(map[string]any, len(node)+6)
 	for k, v := range node {
 		out[k] = v
@@ -58,14 +62,20 @@ func populateNode(node hsapi.Node) map[string]any {
 		}
 	}
 	out["expired"] = expired
+
+	var hostInfo any
+	if raw, ok := stats[strOf(node["nodeKey"])]; ok {
+		hostInfo = raw
+	}
+	out["hostInfo"] = hostInfo
 	return out
 }
 
-// mapNodes mirrors mapNodes: populate every node.
-func mapNodes(nodes []hsapi.Node) []map[string]any {
+// mapNodes mirrors mapNodes: populate every node, attaching agent stats.
+func mapNodes(nodes []hsapi.Node, stats map[string]json.RawMessage) []map[string]any {
 	out := make([]map[string]any, 0, len(nodes))
 	for _, n := range nodes {
-		out = append(out, populateNode(n))
+		out = append(out, populateNode(n, stats))
 	}
 	return out
 }

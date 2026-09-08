@@ -253,10 +253,12 @@ build_healthcheck() {
 
 # Phase 1+ (Go server): build the Go API server skeleton. It serves the SPA
 # static bundle and /healthz; later phases add auth, OIDC, and the JSON API.
+# headplaneVersion (for /api/info) comes from IMAGE_TAG when set, else "dev".
 build_server() {
 	echo "==> Building Go API server → $SERVER_OUTPUT"
 	mkdir -p "$(dirname "$SERVER_OUTPUT")"
-	go build -o "$SERVER_OUTPUT" ./cmd/hp_server
+	go build -ldflags="-X main.headplaneVersion=${IMAGE_TAG:-dev}" \
+		-o "$SERVER_OUTPUT" ./cmd/hp_server
 }
 
 # Phase 0 (SPA conversion): build the pruned SSR server that the interim

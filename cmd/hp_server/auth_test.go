@@ -39,6 +39,20 @@ CREATE TABLE users (
 	updated_at integer,
 	last_login_at integer,
 	caps integer NOT NULL DEFAULT 0
+);
+CREATE TABLE host_info (
+	host_id text PRIMARY KEY NOT NULL,
+	payload text NOT NULL,
+	updated_at integer
+);
+CREATE TABLE service_description_overrides (
+	id text PRIMARY KEY NOT NULL,
+	host_id text NOT NULL,
+	proto text NOT NULL,
+	port integer NOT NULL,
+	description text NOT NULL,
+	updated_by text,
+	updated_at integer
 );`
 
 // mockHeadscale serves GET /api/v1/apikey like Headscale: 200 with the

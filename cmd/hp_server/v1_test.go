@@ -809,30 +809,43 @@ func TestV1Dns(t *testing.T) {
 	}
 }
 
-func TestV1AgentAndPhase5Stubs(t *testing.T) {
+func TestV1AgentDisabledAndPhase5Handlers(t *testing.T) {
 	srv, _, cookie := testV1Server(t, defaultStub())
 
+	// Agent is not configured in the test server: the page reports the
+	// static disabled reason.
 	rec := v1Get(t, srv, cookie, "/settings/agent")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
 	body := decodeBody(t, rec)
-	if body["enabled"] != false || body["reason"] == "" {
+	if body["enabled"] != false || body["reason"] != "Agent is not enabled in the configuration" {
 		t.Fatalf("body = %v", body)
 	}
 
-	// Phase-5 actions answer an explicit 501, never the SPA shell.
+	// Sync with no agent: always 200 with {success:false, error}.
 	rec = v1Post(t, srv, cookie, "/settings/agent/sync", map[string]any{})
 	body = decodeBody(t, rec)
-	if rec.Code != http.StatusNotImplemented || body["success"] != false {
+	if rec.Code != http.StatusOK || body["success"] != false {
 		t.Fatalf("agent/sync: status = %d body = %v", rec.Code, body)
 	}
-	rec = v1Post(t, srv, cookie, "/dns/actions", map[string]any{"action_id": "toggle_magic"})
-	if rec.Code != http.StatusNotImplemented {
+	if _, ok := body["error"].(string); !ok {
+		t.Fatalf("agent/sync: missing error string: %v", body)
+	}
+
+	// DNS actions with a non-writable config: 403 {success:false}.
+	rec = v1Post(t, srv, cookie, "/dns/actions", map[string]any{"action_id": "toggle_magic", "new_state": "enabled"})
+	if rec.Code != http.StatusForbidden {
 		t.Fatalf("dns/actions: status = %d body = %v", rec.Code, rec.Body.String())
 	}
-	rec = v1Post(t, srv, cookie, "/settings/restrictions/actions", map[string]any{"action_id": "add_domain"})
-	if rec.Code != http.StatusNotImplemented {
+
+	// Restrictions with a non-writable config: 403 JSON string.
+	rec = v1Post(t, srv, cookie, "/settings/restrictions/actions", map[string]any{"action_id": "add_domain", "domain": "example.com"})
+	if rec.Code != http.StatusForbidden {
 		t.Fatalf("restrictions/actions: status = %d body = %v", rec.Code, rec.Body.String())
+	}
+	var msg string
+	if err := json.Unmarshal(rec.Body.Bytes(), &msg); err != nil || msg != "The Headscale configuration file is not editable." {
+		t.Fatalf("restrictions/actions: body = %v", rec.Body.String())
 	}
 }

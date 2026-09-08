@@ -120,21 +120,27 @@ func (o *OIDCConfig) IsEnabled() bool {
 	return o != nil && (o.Enabled == nil || *o.Enabled)
 }
 
-// RDPGatewayConfig mirrors the `rdp_gateway` section.
+// RDPGatewayConfig mirrors the `rdp_gateway` section. Enabled defaults to
+// true when the section is present, mirroring the TS schema default.
 type RDPGatewayConfig struct {
-	Enabled      bool   `yaml:"enabled"`
+	Enabled      *bool  `yaml:"enabled"`
 	WebhookURL   string `yaml:"webhook_url"`
 	WebhookToken string `yaml:"webhook_token"`
 }
 
+// IsEnabled reports whether the gateway section enables the webhook.
+func (g *RDPGatewayConfig) IsEnabled() bool {
+	return g != nil && (g.Enabled == nil || *g.Enabled)
+}
+
 // Config is the fully-resolved headplane configuration.
 type Config struct {
-	Debug       bool              `yaml:"debug"`
-	Server      ServerConfig      `yaml:"server"`
-	Headscale   HeadscaleConfig   `yaml:"headscale"`
-	OIDC        *OIDCConfig       `yaml:"oidc"`
-	Integration map[string]any    `yaml:"integration"`
-	RDPGateway  *RDPGatewayConfig `yaml:"rdp_gateway"`
+	Debug       bool               `yaml:"debug"`
+	Server      ServerConfig       `yaml:"server"`
+	Headscale   HeadscaleConfig    `yaml:"headscale"`
+	OIDC        *OIDCConfig        `yaml:"oidc"`
+	Integration *IntegrationConfig `yaml:"integration"`
+	RDPGateway  *RDPGatewayConfig  `yaml:"rdp_gateway"`
 }
 
 // defaults returns a Config with the schema defaults applied.
@@ -444,6 +450,11 @@ func validate(cfg *Config) error {
 		}
 		// Normalize subject_claims like the TS normalizeStringArray pipe.
 		o.SubjectClaims = normalizeStringArray(o.SubjectClaims)
+	}
+
+	cfg.Integration.applyDefaults()
+	if err := cfg.Integration.Validate(); err != nil {
+		return err
 	}
 
 	if cfg.RDPGateway != nil {

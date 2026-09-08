@@ -29,7 +29,9 @@ import (
 	"github.com/tale/headplane/internal/auth"
 	"github.com/tale/headplane/internal/hsapi"
 	"github.com/tale/headplane/internal/hscfg"
+	"github.com/tale/headplane/internal/integration"
 	"github.com/tale/headplane/internal/live"
+	"github.com/tale/headplane/internal/rdpgw"
 	"github.com/tale/headplane/internal/serverconfig"
 )
 
@@ -135,10 +137,45 @@ func main() {
 	// 200/500 semantics of the TS route.
 	healthClient := hsapi.NewClient(cfg.Headscale.URL, "", cfg.Headscale.TLSCertPath, srv.getHsCaps(), logger)
 	srv.healthCheck = healthClient.Health
+	srv.hsHealth = healthClient.Health
+
+	// Phase 5: restart integration (docker/kubernetes/proc). Load picks the
+	// single enabled one, logging when none or several are enabled.
+	if ic := cfg.Integration; ic != nil {
+		var icfg integration.Config
+		if ic.Docker != nil {
+			icfg.Docker = &integration.DockerConfig{
+				Enabled:        ic.Docker.Enabled,
+				ContainerName:  ic.Docker.ContainerName,
+				ContainerLabel: ic.Docker.ContainerLabel,
+				Socket:         ic.Docker.Socket,
+			}
+		}
+		if ic.Kubernetes != nil {
+			icfg.Kubernetes = &integration.KubernetesConfig{
+				Enabled:          ic.Kubernetes.Enabled,
+				PodName:          ic.Kubernetes.PodName,
+				ValidateManifest: ic.Kubernetes.ValidateManifest,
+			}
+		}
+		if ic.Proc != nil {
+			icfg.Proc = &integration.ProcConfig{Enabled: ic.Proc.Enabled}
+		}
+		srv.integration = integration.Load(icfg, logger)
+	}
+
+	// Phase 5: RDP gateway webhook client. The TS schema defaults the
+	// section to enabled when present.
+	if cfg.RDPGateway.IsEnabled() {
+		srv.rdpGw = rdpgw.NewClient(cfg.RDPGateway.WebhookURL, cfg.RDPGateway.WebhookToken, logger)
+		logger.Info("RDP gateway enabled", "webhook", cfg.RDPGateway.WebhookURL)
+	}
 
 	// Version detection with the 30 s retry loop from
 	// app/server/headscale/api/index.ts: capabilities stay permissive until
 	// /version answers, then tighten and refresh the live store's client.
+	// The key is also stashed for the agent pre-detection disabled reason.
+	srv.headscaleAPIKey = headscaleAPIKey
 	hsDone := make(chan struct{})
 	go srv.detectHeadscaleVersion(headscaleAPIKey, hsDone)
 
@@ -146,6 +183,10 @@ func main() {
 	srv.onShutdown = func() {
 		close(hsDone)
 		srv.liveStore.Dispose()
+		// Phase 5: stop the agent sync loop and child process.
+		if mgr, _ := srv.agentManager(); mgr != nil {
+			mgr.Dispose()
+		}
 		if prevShutdown != nil {
 			prevShutdown()
 		}

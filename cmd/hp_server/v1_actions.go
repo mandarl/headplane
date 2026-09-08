@@ -213,12 +213,45 @@ func (s *Server) handleMachineActions(w http.ResponseWriter, r *http.Request) {
 		}
 	case "update_service_description":
 		{
-			// Phase 5: service description overrides are local Headplane state
-			// layered on Hostinfo; not implemented in Phase 4.
-			writeJSON(w, http.StatusNotImplemented, map[string]any{
-				"success": false,
-				"error":   "Service description overrides are not implemented in this build yet.",
-			})
+			// Mirrors the same action in machine-actions.ts: validate
+			// proto/port, then upsert (or delete on empty description) the
+			// Headplane-side override keyed by the node's nodeKey.
+			proto := formStr(body, "proto")
+			portRaw := formStr(body, "port")
+			description := formStr(body, "description")
+			if proto == "" || portRaw == "" {
+				writeError(w, http.StatusBadRequest, "Missing `proto` or `port` in the form data.")
+				return
+			}
+			port, err := strconv.ParseInt(portRaw, 10, 64)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "Invalid `port` in the form data.")
+				return
+			}
+			var updatedBy *string
+			if p.Kind == "oidc" {
+				name := p.ProfileName
+				if name == "" && p.ProfileUsername != nil {
+					name = *p.ProfileUsername
+				}
+				if name == "" {
+					name = p.Subject
+				}
+				updatedBy = &name
+			} else {
+				updatedBy = &p.DisplayName
+			}
+			nodeKey := strOf(node["nodeKey"])
+			if err := s.authSvc.SetServiceOverride(nodeKey, proto, port, description, updatedBy); err != nil {
+				s.logger.Error("set service override failed", "error", err)
+				writeError(w, http.StatusInternalServerError, "Failed to update service description.")
+				return
+			}
+			message := "Description updated"
+			if strings.TrimSpace(description) == "" {
+				message = "Description reset"
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"message": message})
 		}
 	default:
 		writeError(w, http.StatusBadRequest, "Invalid action")
@@ -583,38 +616,5 @@ func containsStr(haystack []string, needle string) bool {
 	return false
 }
 
-// handleAgent mirrors the TS agent loader's disabled branch: the agent is
-// not part of the Go server yet (Phase 5), so the page renders its
-// "not enabled" notice with the reason.
-func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
-	if s.requirePrincipal(w, r) == nil {
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled": false,
-		"reason":  "The Headplane agent is not enabled in this build",
-	})
-}
-
-// handleAgentSyncStub answers the agent sync action while the agent is
-// unimplemented. The SPA passes {success, error} through untouched.
-func (s *Server) handleAgentSyncStub(w http.ResponseWriter, r *http.Request) {
-	if s.requirePrincipal(w, r) == nil {
-		return
-	}
-	writeJSON(w, http.StatusNotImplemented, map[string]any{
-		"success": false,
-		"error":   "The Headplane agent is not enabled in this build",
-	})
-}
-
-// handleConfigActionStub answers Phase 5 config-mutation actions (DNS,
-// auth restrictions) with an explicit 501 JSON string, matching the plain
-// string payloads those actions' clientActions expect.
-func (s *Server) handleConfigActionStub(w http.ResponseWriter, r *http.Request, what string) {
-	if s.requirePrincipal(w, r) == nil {
-		return
-	}
-	writeJSON(w, http.StatusNotImplemented,
-		what+" changes are not yet supported by the Go server.")
-}
+// handleAgent, handleAgentSync, handleDnsActions and
+// handleRestrictionActions live in phase5.go.

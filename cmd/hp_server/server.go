@@ -82,6 +82,10 @@ type Server struct {
 	hsCapsMu  sync.RWMutex
 	hsCaps    hsapi.Capabilities
 
+	// Phase 5: agent manager (lazy), RDP gateway webhook client,
+	// restart integration, detected Headscale version, health probe.
+	phase5State
+
 	// onShutdown runs after the listener drains, before process exit.
 	// Phase 1 has no long-lived resources; later phases hook in here.
 	onShutdown func()
@@ -181,6 +185,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if pathname == s.basename+"/events/live" {
 		s.handleLive(w, r)
+		return
+	}
+
+	// 4b. Phase 5: server-driven utility routes outside /api/v1 (mirrors
+	// the ...prefix("/api", ...) block in app/routes.ts).
+	if pathname == s.basename+"/api/rdp-gateway" {
+		s.handleRdpGateway(w, r)
+		return
+	}
+	if pathname == s.basename+"/api/info" {
+		s.handleInfo(w, r)
 		return
 	}
 

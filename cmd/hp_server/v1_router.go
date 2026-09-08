@@ -59,11 +59,11 @@ func (s *Server) serveAPIv1(w http.ResponseWriter, r *http.Request, rest string)
 	case rest == "/settings/agent" && method == http.MethodGet:
 		s.handleAgent(w, r)
 	case rest == "/settings/agent/sync" && method == http.MethodPost:
-		s.handleAgentSyncStub(w, r)
+		s.handleAgentSync(w, r)
 	case rest == "/dns/actions" && method == http.MethodPost:
-		s.handleConfigActionStub(w, r, "DNS")
+		s.handleDnsActions(w, r)
 	case rest == "/settings/restrictions/actions" && method == http.MethodPost:
-		s.handleConfigActionStub(w, r, "Authentication restriction")
+		s.handleRestrictionActions(w, r)
 	default:
 		if knownAPIPath(rest) {
 			writeError(w, http.StatusMethodNotAllowed, "Method not allowed.")

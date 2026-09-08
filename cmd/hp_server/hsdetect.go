@@ -36,6 +36,9 @@ func (s *Server) detectHeadscaleVersion(apiKey string, done <-chan struct{}) {
 			s.liveStore.SetClient(hsapi.NewClient(s.cfg.Headscale.URL, apiKey,
 				s.cfg.Headscale.TLSCertPath, caps, s.logger))
 		}
+		// Phase 5: record the version for /api/info and lazily build the
+		// agent manager (it needs the detected 0.28+ capability).
+		s.onVersionDetected(v, caps, apiKey)
 		s.logger.Info("detected Headscale version", "version", v.Raw,
 			"preAuthKeysHaveStableIds", caps.PreAuthKeysHaveStableIds,
 			"nodeTagsAreFlat", caps.NodeTagsAreFlat,
