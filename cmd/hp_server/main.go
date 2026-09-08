@@ -25,7 +25,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tale/headplane"
 	"github.com/tale/headplane/internal/auth"
+	"github.com/tale/headplane/internal/hsapi"
+	"github.com/tale/headplane/internal/hscfg"
+	"github.com/tale/headplane/internal/live"
 	"github.com/tale/headplane/internal/serverconfig"
 )
 
@@ -87,6 +91,13 @@ func main() {
 		logger.Error("failed to open auth database", "error", err)
 		os.Exit(1)
 	}
+	// Same drizzle migrations the Node server applies on boot
+	// (app/server/db/client.server.ts): a fresh data directory gets the
+	// full schema, and this is a no-op on an existing database.
+	if err := dbmigrate.Migrate(db); err != nil {
+		logger.Error("failed to migrate auth database", "error", err)
+		os.Exit(1)
+	}
 	authSvc := auth.NewService(db, cfg.Server.CookieSecret, headscaleAPIKey, auth.CookieOptions{
 		Name:   "_hp_auth",
 		Path:   basename,
@@ -105,6 +116,39 @@ func main() {
 	srv.oidcDisabledReason = oidcReason
 	if oidcSvc == nil {
 		logger.Info("OIDC disabled", "reason", oidcReason)
+	}
+
+	// Phase 4: Headscale API layer + live store/SSE. The config file is read
+	// once at startup and never watched or written, mirroring
+	// getHeadscaleConfig.
+	srv.hsCfg = hscfg.Load(cfg.Headscale.ConfigPath, cfg.Headscale.DNSRecordsPath, logger)
+	logger.Info("headscale config", "access", string(srv.hsCfg.Access()))
+
+	var defaultHSClient *hsapi.Client
+	if headscaleAPIKey != "" {
+		defaultHSClient = hsapi.NewClient(cfg.Headscale.URL, headscaleAPIKey,
+			cfg.Headscale.TLSCertPath, srv.getHsCaps(), logger)
+	}
+	srv.liveStore = live.NewStore(logger, defaultHSClient)
+
+	// /healthz probes Headscale's unauthenticated /health, regaining the
+	// 200/500 semantics of the TS route.
+	healthClient := hsapi.NewClient(cfg.Headscale.URL, "", cfg.Headscale.TLSCertPath, srv.getHsCaps(), logger)
+	srv.healthCheck = healthClient.Health
+
+	// Version detection with the 30 s retry loop from
+	// app/server/headscale/api/index.ts: capabilities stay permissive until
+	// /version answers, then tighten and refresh the live store's client.
+	hsDone := make(chan struct{})
+	go srv.detectHeadscaleVersion(headscaleAPIKey, hsDone)
+
+	prevShutdown := srv.onShutdown
+	srv.onShutdown = func() {
+		close(hsDone)
+		srv.liveStore.Dispose()
+		if prevShutdown != nil {
+			prevShutdown()
+		}
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

@@ -12,9 +12,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tale/headplane/internal/auth"
+	"github.com/tale/headplane/internal/hsapi"
+	"github.com/tale/headplane/internal/hscfg"
+	"github.com/tale/headplane/internal/live"
 	"github.com/tale/headplane/internal/oidc"
 	"github.com/tale/headplane/internal/serverconfig"
 )
@@ -68,6 +72,16 @@ type Server struct {
 	oidcSvc            *oidc.Service
 	oidcDisabledReason string
 
+	// Phase 4: Headscale. hsCfg is the read-only Headscale config (nil-safe
+	// via its methods); liveStore is the versioned nodes/users cache feeding
+	// the API and the SSE stream. hsCapsMu guards the version-derived
+	// capability flags, which start permissive and tighten once /version
+	// detection succeeds (mirroring index.ts's detect loop).
+	hsCfg     *hscfg.Config
+	liveStore *live.Store
+	hsCapsMu  sync.RWMutex
+	hsCaps    hsapi.Capabilities
+
 	// onShutdown runs after the listener drains, before process exit.
 	// Phase 1 has no long-lived resources; later phases hook in here.
 	onShutdown func()
@@ -84,7 +98,26 @@ func newServer(cfg *serverconfig.Config, basename, clientDir string, logger *slo
 		clientDir:   abs,
 		logger:      logger.With("component", "server"),
 		healthCheck: func() bool { return true },
+		// Capabilities start permissive (as if the newest known
+		// Headscale) until /version detection succeeds, mirroring the
+		// TS detect loop in app/server/headscale/api/index.ts.
+		hsCaps: hsapi.CapabilitiesFor(hsapi.ParseServerVersion("unreachable")),
 	}
+}
+
+// getHsCaps returns the current version-derived capability flags.
+func (s *Server) getHsCaps() hsapi.Capabilities {
+	s.hsCapsMu.RLock()
+	defer s.hsCapsMu.RUnlock()
+	return s.hsCaps
+}
+
+// setHsCaps replaces the capability flags (called when /version detection
+// succeeds) and refreshes the live store's client so polling uses them.
+func (s *Server) setHsCaps(caps hsapi.Capabilities) {
+	s.hsCapsMu.Lock()
+	s.hsCaps = caps
+	s.hsCapsMu.Unlock()
 }
 
 // ServeHTTP is a single hand-rolled router. It works from the raw
@@ -139,7 +172,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Static assets + SPA fallback for GET/HEAD under the basename.
+	// 4. Phase 4: the versioned JSON API the SPA talks to, plus the
+	// live-update SSE stream. These sit before the static fallback so
+	// /api/v1/* and /events/live never resolve to the SPA shell.
+	if rest, ok := strings.CutPrefix(pathname, s.basename+apiPrefix); ok {
+		s.serveAPIv1(w, r, rest)
+		return
+	}
+	if pathname == s.basename+"/events/live" {
+		s.handleLive(w, r)
+		return
+	}
+
+	// 5. Static assets + SPA fallback for GET/HEAD under the basename.
 	if strings.HasPrefix(pathname, s.basename+"/") {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			s.serveStatic(w, r, pathname)

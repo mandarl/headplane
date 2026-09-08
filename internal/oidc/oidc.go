@@ -185,6 +185,20 @@ func NewService(cfg Config, logger *slog.Logger) *Service {
 	}
 }
 
+// Issuer returns the configured OIDC issuer.
+func (s *Service) Issuer() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.Issuer
+}
+
+// ProfilePictureSource returns "oidc" or "gravatar".
+func (s *Service) ProfilePictureSource() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.ProfilePictureSource
+}
+
 // Status mirrors the TS status().
 func (s *Service) Status() (state string, endpoints *ResolvedEndpoints, err *Error) {
 	s.mu.Lock()
