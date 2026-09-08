@@ -117,6 +117,11 @@ func VerifyCookie(secret, cookieHeader, name string) (CookiePayload, error) {
 	return payload, nil
 }
 
+// CookieValue extracts the raw (still-encoded) value of name from a Cookie
+// header. It is the exported form of parseCookieHeader, for callers (like the
+// OIDC state cookie) that do their own value decoding.
+func CookieValue(header, name string) string { return parseCookieHeader(header, name) }
+
 // parseCookieHeader extracts the value of name from a Cookie header,
 // mirroring the `cookie` npm package's parse: split on ';', match on the
 // first '=', first occurrence wins, surrounding whitespace trimmed. The
@@ -206,7 +211,7 @@ func SerializeSetCookie(opts CookieOptions, value string, expires *time.Time) st
 	var sb strings.Builder
 	sb.WriteString(opts.Name)
 	sb.WriteByte('=')
-	sb.WriteString(encodeURIComponent(value))
+	sb.WriteString(EncodeURIComponent(value))
 	sb.WriteString("; Max-Age=")
 	fmt.Fprintf(&sb, "%d", opts.MaxAge)
 	if opts.Domain != "" {
@@ -230,7 +235,10 @@ func SerializeSetCookie(opts CookieOptions, value string, expires *time.Time) st
 // encodeURIComponent: everything except A-Za-z0-9 and -_.!~*'() is escaped
 // as %XX (UTF-8 bytes). Go's url.QueryEscape differs (it escapes !'() and
 // leaves nothing else), so this is hand-rolled.
-func encodeURIComponent(s string) string {
+// EncodeURIComponent mirrors JavaScript's encodeURIComponent, for values
+// that must round-trip with the TypeScript implementation (OIDC Basic
+// credentials, the __oidc_state cookie).
+func EncodeURIComponent(s string) string {
 	var sb strings.Builder
 	sb.Grow(len(s))
 	for i := 0; i < len(s); i++ {

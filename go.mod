@@ -4,6 +4,7 @@ go 1.25.1
 
 require (
 	github.com/coder/websocket v1.8.12
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/tomatome/grdp v0.1.0
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745
 	golang.org/x/crypto v0.54.0
@@ -37,6 +38,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
 	github.com/gaissmai/bart v0.18.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-json-experiment/json v0.0.0-20250813024750-ebf49471dced // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.1-0.20230522191255-76236955d466 // indirect
@@ -78,6 +80,7 @@ require (
 	golang.org/x/exp v0.0.0-20250210185358-939b2ce775ac // indirect
 	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect

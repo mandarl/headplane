@@ -97,6 +97,16 @@ func main() {
 	authSvc.Start()
 	srv.authSvc = authSvc
 
+	// Phase 3: OIDC. newOidcService mirrors buildOidc in
+	// app/server/context.ts, including the three disabled reasons; the
+	// routes answer 501 "OIDC is unavailable: <reason>" when disabled.
+	oidcSvc, oidcReason := newOidcService(cfg, basename, logger)
+	srv.oidcSvc = oidcSvc
+	srv.oidcDisabledReason = oidcReason
+	if oidcSvc == nil {
+		logger.Info("OIDC disabled", "reason", oidcReason)
+	}
+
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {

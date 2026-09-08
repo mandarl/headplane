@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/tale/headplane/internal/auth"
+	"github.com/tale/headplane/internal/oidc"
 	"github.com/tale/headplane/internal/serverconfig"
 )
 
@@ -61,6 +62,11 @@ type Server struct {
 	logger      *slog.Logger
 	healthCheck HealthChecker
 	authSvc     *auth.Service
+
+	// Phase 3: OIDC. oidcSvc is nil when OIDC is disabled, in which case
+	// oidcDisabledReason carries the TS "OIDC is unavailable: <reason>".
+	oidcSvc            *oidc.Service
+	oidcDisabledReason string
 
 	// onShutdown runs after the listener drains, before process exit.
 	// Phase 1 has no long-lived resources; later phases hook in here.
@@ -122,6 +128,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if pathname == s.basename+"/logout" {
 		s.handleLogout(w, r)
+		return
+	}
+	if pathname == s.basename+"/oidc/start" && r.Method == http.MethodGet {
+		s.handleOidcStart(w, r)
+		return
+	}
+	if pathname == s.basename+"/oidc/callback" && r.Method == http.MethodGet {
+		s.handleOidcCallback(w, r)
 		return
 	}
 

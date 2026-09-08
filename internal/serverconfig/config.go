@@ -85,9 +85,12 @@ type HeadscaleConfig struct {
 	TLSCertPath    string `yaml:"tls_cert_path"`
 }
 
-// OIDCConfig mirrors the `oidc` section.
+// OIDCConfig mirrors the `oidc` section. Enabled is a *bool because the
+// schema default is enabled=true when the section is present: nil means
+// "not specified" and validates to true, while an explicit
+// `enabled: false` disables OIDC.
 type OIDCConfig struct {
-	Enabled                 bool              `yaml:"enabled"`
+	Enabled                 *bool             `yaml:"enabled"`
 	Issuer                  string            `yaml:"issuer"`
 	ClientID                string            `yaml:"client_id"`
 	ClientSecret            string            `yaml:"client_secret"`
@@ -102,11 +105,19 @@ type OIDCConfig struct {
 	ExtraParams             map[string]string `yaml:"extra_params"`
 	AuthorizationEndpoint   string            `yaml:"authorization_endpoint"`
 	TokenEndpoint           string            `yaml:"token_endpoint"`
+	JWKsURI                 string            `yaml:"jwks_uri"`
 	UserinfoEndpoint        string            `yaml:"userinfo_endpoint"`
 	EndSessionEndpoint      string            `yaml:"end_session_endpoint"`
 	PostLogoutRedirectURI   string            `yaml:"post_logout_redirect_uri"`
 	UseEndSession           bool              `yaml:"use_end_session"`
 	TokenEndpointAuthMethod string            `yaml:"token_endpoint_auth_method"`
+}
+
+// IsEnabled reports whether the OIDC section enables the provider. A nil
+// receiver or nil Enabled (e.g. a struct built without validate()) means
+// the schema default: enabled.
+func (o *OIDCConfig) IsEnabled() bool {
+	return o != nil && (o.Enabled == nil || *o.Enabled)
 }
 
 // RDPGatewayConfig mirrors the `rdp_gateway` section.
@@ -408,6 +419,11 @@ func validate(cfg *Config) error {
 
 	if cfg.OIDC != nil {
 		o := cfg.OIDC
+		if o.Enabled == nil {
+			// Schema default: the section being present means enabled.
+			t := true
+			o.Enabled = &t
+		}
 		if o.Issuer == "" {
 			return fmt.Errorf("config: oidc.issuer is required")
 		}

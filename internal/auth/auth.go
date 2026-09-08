@@ -12,7 +12,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Principal mirrors the TS Principal union.
+// Principal mirrors the TS Principal union. Exported so the HTTP
+// layer can branch on the principal kind (e.g. OIDC RP-initiated logout).
 type Principal struct {
 	Kind      string // "api_key" | "oidc"
 	SessionID string

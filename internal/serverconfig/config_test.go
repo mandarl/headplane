@@ -216,3 +216,43 @@ func TestDeepMergeNested(t *testing.T) {
 		t.Errorf("file value lost in merge: port = %d", cfg.Server.Port)
 	}
 }
+
+func TestOidcEnabledDefault(t *testing.T) {
+	withEnv(t, map[string]string{})
+	base := `
+server:
+  cookie_secret: "0123456789abcdef0123456789abcdef"
+headscale:
+  url: "http://127.0.0.1:8080/"
+oidc:
+  issuer: "https://idp.example.com"
+  client_id: "c"
+  client_secret: "s3cr3t-s3cr3t-s3cr3t-s3cr3t12"
+`
+	// Omitted `enabled` defaults to true when the section is present
+	// (matches the TS zod schema default).
+	cfg, err := Load(writeConfig(t, base))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.OIDC == nil || !cfg.OIDC.IsEnabled() {
+		t.Errorf("omitted oidc.enabled should default to enabled")
+	}
+
+	// An explicit `enabled: false` must survive validation as disabled.
+	cfgOff, err := Load(writeConfig(t, base+"  enabled: false\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfgOff.OIDC == nil || cfgOff.OIDC.IsEnabled() {
+		t.Errorf("explicit oidc.enabled: false should stay disabled")
+	}
+
+	cfgOn, err := Load(writeConfig(t, base+"  enabled: true\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfgOn.OIDC == nil || !cfgOn.OIDC.IsEnabled() {
+		t.Errorf("explicit oidc.enabled: true should stay enabled")
+	}
+}

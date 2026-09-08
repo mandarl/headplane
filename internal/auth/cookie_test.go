@@ -163,13 +163,13 @@ func TestSerializeSetCookie(t *testing.T) {
 func TestEncodeURIComponent(t *testing.T) {
 	// Matches JavaScript encodeURIComponent for the base64 alphabet: only
 	// the padding '=' is escaped.
-	if got := encodeURIComponent("ImFiYyI="); got != "ImFiYyI%3D" {
+	if got := EncodeURIComponent("ImFiYyI="); got != "ImFiYyI%3D" {
 		t.Fatalf("got %q", got)
 	}
-	if got := encodeURIComponent("abcXYZ019-_.!~*'()"); got != "abcXYZ019-_.!~*'()" {
+	if got := EncodeURIComponent("abcXYZ019-_.!~*'()"); got != "abcXYZ019-_.!~*'()" {
 		t.Fatalf("got %q", got)
 	}
-	if got := encodeURIComponent("a+b/c"); got != "a%2Bb%2Fc" {
+	if got := EncodeURIComponent("a+b/c"); got != "a%2Bb%2Fc" {
 		t.Fatalf("got %q", got)
 	}
 }

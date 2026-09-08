@@ -165,12 +165,26 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		redirectTo = s.basename + "/login?s=logout"
 	}
 	// Phase 3 adds the RP-initiated OIDC end-session redirect here.
-	if _, err := s.authSvc.Require(r); err != nil {
+	principal, err := s.authSvc.Require(r)
+	if err != nil {
 		// Mirrors the TS action: an unauthenticated logout just bounces to
 		// the login page without touching a cookie.
 		w.Header().Set("Location", s.basename+"/login")
 		w.WriteHeader(http.StatusFound)
 		return
+	}
+	if principal.Kind == "oidc" && s.oidcSvc != nil &&
+		s.cfg.OIDC != nil && s.cfg.OIDC.UseEndSession {
+		// Mirrors the TS logout action: end the upstream IdP session too.
+		// BuildEndSessionURL triggers discovery when needed; the local
+		// session is destroyed and the cookie cleared regardless.
+		var idToken string
+		if principal.IDToken != nil {
+			idToken = *principal.IDToken
+		}
+		if endURL := s.oidcSvc.BuildEndSessionURL(r.Context(), idToken); endURL != "" {
+			redirectTo = endURL
+		}
 	}
 	w.Header().Set("Set-Cookie", s.authSvc.DestroySession(r))
 	w.Header().Set("Location", redirectTo)
