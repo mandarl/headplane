@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tale/headplane/internal/auth"
 	"github.com/tale/headplane/internal/serverconfig"
 )
 
@@ -59,6 +60,7 @@ type Server struct {
 	clientDir   string
 	logger      *slog.Logger
 	healthCheck HealthChecker
+	authSvc     *auth.Service
 
 	// onShutdown runs after the listener drains, before process exit.
 	// Phase 1 has no long-lived resources; later phases hook in here.
@@ -112,7 +114,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Static assets + SPA fallback for GET/HEAD under the basename.
+	// 3. Auth endpoints (Phase 2). These stay server-driven in the SPA: the
+	// browser never sees the Headscale API key or the session internals.
+	if pathname == s.basename+"/login" && r.Method == http.MethodPost {
+		s.handleLogin(w, r)
+		return
+	}
+	if pathname == s.basename+"/logout" {
+		s.handleLogout(w, r)
+		return
+	}
+
+	// 4. Static assets + SPA fallback for GET/HEAD under the basename.
 	if strings.HasPrefix(pathname, s.basename+"/") {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			s.serveStatic(w, r, pathname)

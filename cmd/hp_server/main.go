@@ -20,10 +20,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/tale/headplane/internal/auth"
 	"github.com/tale/headplane/internal/serverconfig"
 )
 
@@ -73,6 +75,28 @@ func main() {
 
 	srv := newServer(cfg, basename, *clientDir, logger)
 
+	// Phase 2: session/auth. The DB file is shared with the Node server
+	// (same schema); the byte-identical _hp_auth cookie scheme is what makes
+	// sessions issued by either server validate on the other.
+	headscaleAPIKey := cfg.Headscale.APIKey
+	if headscaleAPIKey == "" && cfg.OIDC != nil {
+		headscaleAPIKey = cfg.OIDC.HeadscaleAPIKey
+	}
+	db, err := auth.OpenDB(filepath.Join(cfg.Server.DataPath, "hp_persist.db"))
+	if err != nil {
+		logger.Error("failed to open auth database", "error", err)
+		os.Exit(1)
+	}
+	authSvc := auth.NewService(db, cfg.Server.CookieSecret, headscaleAPIKey, auth.CookieOptions{
+		Name:   "_hp_auth",
+		Path:   basename,
+		MaxAge: cfg.Server.CookieMaxAge,
+		Secure: cfg.Server.CookieSecure,
+		Domain: cfg.Server.CookieDomain,
+	})
+	authSvc.Start()
+	srv.authSvc = authSvc
+
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -121,6 +145,8 @@ func main() {
 	if hook := srv.onShutdown; hook != nil {
 		hook()
 	}
+	authSvc.Stop()
+	db.Close()
 	os.Exit(0)
 }
 

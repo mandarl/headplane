@@ -5,7 +5,6 @@ import {
   Link as RouterLink,
   redirect,
   redirectDocument,
-  UNSAFE_decodeViaTurboStream as decodeViaTurboStream,
   useSearchParams,
 } from "react-router";
 
@@ -69,31 +68,22 @@ export async function clientLoader({ request }: Route.ClientLoaderArgs) {
 }
 
 export async function clientAction({ request }: Route.ClientActionArgs) {
-  // Forward the credentials to the server-driven login action as a React
-  // Router single-fetch data request (`.data`). A plain document POST would
-  // have the action result swallowed into a re-rendered page (the old SSR
-  // behavior); the data request returns it as turbo-stream JSON instead.
-  // The interim server proxies this to the Node SSR server (later: the Go
-  // server, whose POST /login will speak plain JSON and let this go back to
-  // a simple fetch).
-  const res = await fetch(`${__PREFIX__}/login.data`, {
+  // Forward the credentials to the Go server's POST /login, which speaks
+  // plain JSON: success is a 302 to /machines with the session cookie set
+  // (fetch follows it, so we detect it via res.redirected); failure is a
+  // 200 JSON {success:false,message} body.
+  const res = await fetch(`${__PREFIX__}/login`, {
     method: "POST",
     body: await request.formData(),
     credentials: "include",
   });
-  if (!res.body) {
-    throw new Error("Login failed with an unexpected response");
-  }
-  const { value } = await decodeViaTurboStream(res.body, window);
-  if (value !== null && typeof value === "object" && "redirect" in value) {
-    // Success: the server issued a redirect (session cookie is set) —
+  if (res.redirected) {
+    // The server issued a session cookie and sent us to /machines —
     // continue client-side so the SPA boots authenticated.
-    const to = (value as { redirect?: unknown }).redirect;
-    throw redirect(typeof to === "string" ? to : "/machines");
+    const url = new URL(res.url);
+    throw redirect(url.pathname + url.search);
   }
-  const data = (value as { data?: unknown } | null)?.data as
-    | { success?: boolean; message?: string }
-    | undefined;
+  const data = (await res.json()) as { success?: boolean; message?: string };
   if (data && data.success === false) {
     return data;
   }
