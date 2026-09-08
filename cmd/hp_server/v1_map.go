@@ -42,17 +42,30 @@ func populateNode(node hsapi.Node, stats map[string]json.RawMessage) map[string]
 		out[k] = v
 	}
 
-	// availableRoutes: unique route prefixes across all hostinfo routes.
-	seen := map[string]bool{}
-	available := []string{}
-	if routes, ok := node["routes"].([]any); ok {
-		for _, r := range routes {
-			if rm, ok := r.(map[string]any); ok {
-				if prefix, ok := rm["prefix"].(string); ok && prefix != "" && !seen[prefix] {
-					seen[prefix] = true
-					available = append(available, prefix)
+	// availableRoutes: Headscale >= 0.26 returns it as a top-level string
+	// array; older payloads only carried a hostinfo `routes` list of
+	// {prefix} objects. Prefer the explicit field and fall back to
+	// routes[].prefix, then de-dupe preserving order. (The old code always
+	// rebuilt from routes[] and so clobbered availableRoutes to [] on
+	// modern Headscale.)
+	rawAvailable := strListOf(node["availableRoutes"])
+	if len(rawAvailable) == 0 {
+		if routes, ok := node["routes"].([]any); ok {
+			for _, r := range routes {
+				if rm, ok := r.(map[string]any); ok {
+					if p := strOf(rm["prefix"]); p != "" {
+						rawAvailable = append(rawAvailable, p)
+					}
 				}
 			}
+		}
+	}
+	seen := map[string]bool{}
+	available := []string{}
+	for _, p := range rawAvailable {
+		if !seen[p] {
+			seen[p] = true
+			available = append(available, p)
 		}
 	}
 	out["availableRoutes"] = available

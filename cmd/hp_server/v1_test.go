@@ -324,6 +324,44 @@ func TestV1Machines(t *testing.T) {
 	}
 }
 
+// Modern Headscale (>= 0.26) returns availableRoutes as a top-level string
+// array; populateNode must use it (not clobber it to []) and derive
+// customRouting from it exactly like node-info.ts.
+func TestV1MachinesCustomRoutingModernShape(t *testing.T) {
+	stub := defaultStub()
+	stub.nodes = []map[string]any{{
+		"id":             "1",
+		"name":           "node1",
+		"user":           map[string]any{"id": "1", "name": "alice"},
+		"availableRoutes": []any{"0.0.0.0/0", "::/0", "10.0.0.0/24", "10.1.0.0/24"},
+		"approvedRoutes":  []any{"::/0", "10.0.0.0/24"},
+		"expiry":          "2099-01-01T00:00:00Z",
+	}}
+	srv, _, cookie := testV1Server(t, stub)
+	rec := v1Get(t, srv, cookie, "/machines")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	n := decodeBody(t, rec)["populatedNodes"].([]any)[0].(map[string]any)
+
+	if got := strSlice(n["availableRoutes"]); !equalStrs(got, []string{"0.0.0.0/0", "::/0", "10.0.0.0/24", "10.1.0.0/24"}) {
+		t.Fatalf("availableRoutes = %v (must not be clobbered)", got)
+	}
+	cr := n["customRouting"].(map[string]any)
+	if got := strSlice(cr["exitRoutes"]); !equalStrs(got, []string{"0.0.0.0/0", "::/0"}) {
+		t.Fatalf("exitRoutes = %v", got)
+	}
+	if cr["exitApproved"] != true { // ::/0 is approved
+		t.Fatalf("exitApproved = %v", cr["exitApproved"])
+	}
+	if got := strSlice(cr["subnetApprovedRoutes"]); !equalStrs(got, []string{"10.0.0.0/24"}) {
+		t.Fatalf("subnetApprovedRoutes = %v", got)
+	}
+	if got := strSlice(cr["subnetWaitingRoutes"]); !equalStrs(got, []string{"10.1.0.0/24"}) {
+		t.Fatalf("subnetWaitingRoutes = %v", got)
+	}
+}
+
 func TestV1MachineDetail(t *testing.T) {
 	stub := defaultStub()
 	// Second node with different tags: existingTags must be the sorted
