@@ -198,6 +198,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleInfo(w, r)
 		return
 	}
+	if pathname == s.basename+"/api/color-scheme" {
+		s.handleColorScheme(w, r)
+		return
+	}
 
 	// 5. Static assets + SPA fallback for GET/HEAD under the basename.
 	if strings.HasPrefix(pathname, s.basename+"/") {
