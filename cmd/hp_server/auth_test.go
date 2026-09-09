@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -103,6 +105,33 @@ func postLogin(t *testing.T, srv *Server, body string) *httptest.ResponseRecorde
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	return rec
+}
+
+// The SPA login (login/page.tsx) posts request.formData(), which fetch
+// sends as multipart/form-data, not urlencoded.
+func TestLoginAcceptsMultipartBody(t *testing.T) {
+	expiry := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	hs := mockHeadscale(t, map[string][]map[string]any{
+		"mp-secret": {{"prefix": "mp", "expiration": expiry}},
+	})
+	defer hs.Close()
+	srv := testAuthServer(t, hs.URL)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("api_key", "mp-secret")
+	mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/admin/login", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("multipart login: status = %d (%s), want 302", rec.Code, rec.Body.String())
+	}
+	if !strings.HasPrefix(rec.Header().Get("Set-Cookie"), "_hp_auth=") {
+		t.Fatalf("multipart login: no session cookie (%q)", rec.Header().Get("Set-Cookie"))
+	}
 }
 
 func TestLoginSuccess(t *testing.T) {

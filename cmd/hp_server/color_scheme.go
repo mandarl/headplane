@@ -24,10 +24,11 @@ func (s *Server) handleColorScheme(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.")
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request")
-		return
-	}
+	// header.tsx posts a FormData body → multipart/form-data. ParseMultipartForm
+	// also parses urlencoded/query (it calls ParseForm internally), so this
+	// covers both; a non-multipart body just yields ErrNotMultipart here,
+	// which is fine — FormValue still reads what ParseForm populated.
+	_ = r.ParseMultipartForm(1 << 20)
 
 	scheme := r.FormValue("colorScheme")
 	switch scheme {

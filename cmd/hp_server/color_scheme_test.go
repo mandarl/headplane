@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -79,6 +81,28 @@ func TestHandleColorScheme(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET: status = %d, want 405", rec.Code)
+	}
+
+	// multipart/form-data body (what header.tsx's `fetch` with a FormData
+	// body actually sends) must work, not just urlencoded.
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("colorScheme", "light")
+	_ = mw.WriteField("returnTo", "/dns")
+	mw.Close()
+	req = httptest.NewRequest(http.MethodPost, "/admin/api/color-scheme", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Cookie", cookie)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("multipart: status = %d (%s), want 302", rec.Code, rec.Body.String())
+	}
+	if loc := rec.Header().Get("Location"); loc != "/admin/dns" {
+		t.Fatalf("multipart: Location = %q", loc)
+	}
+	if sc := rec.Header().Get("Set-Cookie"); !strings.Contains(sc, "color_scheme=") || strings.Contains(sc, "color_scheme=;") {
+		t.Fatalf("multipart: Set-Cookie = %q", sc)
 	}
 }
 

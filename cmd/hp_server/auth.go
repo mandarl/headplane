@@ -90,10 +90,11 @@ func (s *Server) loginFailure(w http.ResponseWriter, message string) {
 // redirects to "/machines", resolved under the basename); on failure it
 // returns the 200 JSON failure contract the SPA clientAction reads.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		s.loginFailure(w, "Error while validating API key (see logs for details)")
-		return
-	}
+	// The SPA login (app/routes/auth/login/page.tsx) posts `request.formData()`,
+	// which fetch sends as multipart/form-data; a native form / curl sends
+	// urlencoded. ParseMultipartForm calls ParseForm internally so it covers
+	// both — a non-multipart body just yields ErrNotMultipart, which is fine.
+	_ = r.ParseMultipartForm(1 << 20)
 	apiKey := r.FormValue("api_key")
 	if r.Form["api_key"] == nil {
 		s.logger.Warn("request made without API key", "component", "auth")
