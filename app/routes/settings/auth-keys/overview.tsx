@@ -6,100 +6,39 @@ import Link from "~/components/link";
 import Notice from "~/components/notice";
 import Select from "~/components/select";
 import TableList from "~/components/table-list";
-import { usersResource } from "~/server/headscale/live-store";
-import { Capabilities } from "~/server/web/roles";
+import { apiAction, apiGet } from "~/lib/api";
 import type { PreAuthKey } from "~/types";
 import type { User } from "~/types/User";
-import log from "~/utils/log";
 import { getUserDisplayName } from "~/utils/user";
 
 import type { Route } from "./+types/overview";
-import { authKeysAction } from "./actions";
 import AuthKeyRow from "./auth-key-row";
 import AddAuthKey from "./dialogs/add-auth-key";
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  const { principal, api } = await context.apiForRequest(request);
+type AuthKeysData = {
+  access: boolean;
+  currentSubject: string | null;
+  keys: { user: User | null; preAuthKeys: PreAuthKey[] }[];
+  missing: { user: User; error: string }[];
+  selfServiceOnly: boolean;
+  url: string;
+  users: User[];
+};
 
-  const usersSnap = await context.hsLive.get(usersResource, api);
-  const users = usersSnap.data;
-
-  let keys: { user: User | null; preAuthKeys: PreAuthKey[] }[];
-  let missing: { user: User; error: unknown }[] = [];
-
-  // Try fetching all keys at once (Headscale 0.28+), fall back to per-user
-  let allKeys: PreAuthKey[] | null = null;
-  if (api.preAuthKeys.listAll) {
-    try {
-      allKeys = await api.preAuthKeys.listAll();
-    } catch {
-      // Treat any failure as "no global list available" and fall through.
-    }
-  }
-
-  if (allKeys !== null) {
-    const keysByUser = new Map<string | null, PreAuthKey[]>();
-    for (const key of allKeys) {
-      const userId = key.user?.id ?? null;
-      const existing = keysByUser.get(userId) ?? [];
-      existing.push(key);
-      keysByUser.set(userId, existing);
-    }
-
-    keys = [];
-    const tagOnly = keysByUser.get(null);
-    if (tagOnly?.length) {
-      keys.push({ preAuthKeys: tagOnly, user: null });
-    }
-    for (const user of users) {
-      const userKeys = keysByUser.get(user.id);
-      if (userKeys?.length) {
-        keys.push({ preAuthKeys: userKeys, user });
-      }
-    }
-  } else {
-    type FetchResult =
-      | { success: true; user: User; preAuthKeys: PreAuthKey[] }
-      | { success: false; user: User; error: unknown; preAuthKeys: [] };
-
-    const results: FetchResult[] = await Promise.all(
-      users
-        .filter((u) => u.id?.length > 0)
-        .map(async (user) => {
-          try {
-            const preAuthKeys = await api.preAuthKeys.listForUser(user.id);
-            return { preAuthKeys, success: true as const, user };
-          } catch (error) {
-            log.error("api", "GET /v1/preauthkey for %s: %o", user.name, error);
-            return { error, preAuthKeys: [] as const, success: false as const, user };
-          }
-        }),
-    );
-
-    keys = results
-      .filter(({ success }) => success)
-      .map(({ user, preAuthKeys }) => ({ preAuthKeys, user }));
-
-    missing = results
-      .filter((r): r is Extract<FetchResult, { success: false }> => !r.success)
-      .map(({ user, error }) => ({ error, user }));
-  }
-
-  const canGenerateAny = context.auth.can(principal, Capabilities.generate_authkeys);
-  const canGenerateOwn = context.auth.can(principal, Capabilities.generate_own_authkeys);
-
-  return {
-    access: canGenerateAny || canGenerateOwn,
-    currentSubject: principal.kind === "oidc" ? principal.user.subject : undefined,
-    keys,
-    missing,
-    selfServiceOnly: !canGenerateAny && canGenerateOwn,
-    url: context.config.headscale.public_url ?? context.config.headscale.url,
-    users,
-  };
+export async function clientLoader(): Promise<AuthKeysData> {
+  return apiGet<AuthKeysData>("/settings/auth-keys");
 }
 
-export const action = authKeysAction;
+export async function clientAction({ request }: Route.ClientActionArgs) {
+  // `add_preauthkey` → `{ success, key }`; `expire_preauthkey` → a plain JSON
+  // string `"Pre-auth key expired"`. `apiAction` returns JSON bodies even on
+  // non-2xx, so validation/permission error strings surface through
+  // `fetcher.data` exactly like the old server action's `data(...)` payloads.
+  return apiAction<{ success: boolean; key: string } | string>(
+    "/settings/auth-keys/actions",
+    await request.formData(),
+  );
+}
 
 type Status = "all" | "active" | "expired" | "reusable" | "ephemeral";
 export default function Page({
@@ -199,7 +138,7 @@ export default function Page({
         </Link>
       </p>
       <AddAuthKey
-        currentSubject={currentSubject}
+        currentSubject={currentSubject ?? undefined}
         selfServiceOnly={selfServiceOnly}
         url={url}
         users={users}

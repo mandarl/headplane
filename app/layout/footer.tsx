@@ -29,6 +29,16 @@ export default function Footer({ isDebug, baseUrl }: FooterProps) {
           to support development.
         </p>
         <div className="flex items-center gap-2 text-xs">
+          <span
+            title="Headplane server implementation serving this UI"
+            className={cn(
+              "rounded-full px-2 py-0.5 font-medium",
+              "bg-indigo-100 text-indigo-800",
+              "dark:bg-indigo-900/50 dark:text-indigo-300",
+            )}
+          >
+            {__SERVER_KIND__} server
+          </span>
           {isDebug && (
             <span
               className={cn(

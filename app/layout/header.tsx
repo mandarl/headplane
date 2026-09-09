@@ -11,7 +11,7 @@ import {
   Sun,
   Users,
 } from "lucide-react";
-import { NavLink, unstable_useRoute as useRoute, useLocation, useSubmit } from "react-router";
+import { NavLink, unstable_useRoute as useRoute, useLocation } from "react-router";
 
 import Link from "~/components/link";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "~/components/menu";
@@ -59,7 +59,6 @@ const colorSchemes = [
 }>;
 
 export default function Header({ user, access, configAvailable }: HeaderProps) {
-  const submit = useSubmit();
   const showTabs = access.ui;
   const rootRoute = useRoute("root");
   const currentColorScheme: ColorScheme = rootRoute?.loaderData?.colorScheme ?? "system";
@@ -68,6 +67,31 @@ export default function Header({ user, access, configAvailable }: HeaderProps) {
   // following the redirect on the client.
   const location = useLocation();
   const returnTo = location.pathname + location.search;
+
+  // Phase 0 (SPA): /api/color-scheme and /logout are server-driven routes that
+  // are not part of the SPA route tree, so they are posted with plain fetch /
+  // a native form instead of React Router's useSubmit.
+  async function setColorSchemePreference(value: ColorScheme) {
+    const form = new FormData();
+    form.set("colorScheme", value);
+    form.set("returnTo", returnTo);
+    await fetch(`${__PREFIX__}/api/color-scheme`, {
+      method: "POST",
+      body: form,
+      credentials: "include",
+    });
+    // The server responds with a redirect + Set-Cookie; a full reload applies
+    // the new scheme via the root clientLoader (mirrors the old behavior).
+    window.location.href = `${__PREFIX__}${returnTo}`;
+  }
+
+  function logout() {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = `${__PREFIX__}/logout`;
+    document.body.appendChild(form);
+    form.submit();
+  }
 
   return (
     <header
@@ -166,15 +190,7 @@ export default function Header({ user, access, configAvailable }: HeaderProps) {
               </MenuItem>
               <MenuSeparator />
               {colorSchemes.map(({ value, label, icon: Icon }) => (
-                <MenuItem
-                  key={value}
-                  onClick={() =>
-                    submit(
-                      { colorScheme: value, returnTo },
-                      { action: "/api/color-scheme", method: "POST" },
-                    )
-                  }
-                >
+                <MenuItem key={value} onClick={() => void setColorSchemePreference(value)}>
                   <div className="flex items-center gap-x-2">
                     <Icon className="size-4" />
                     <span className="flex-1">{label}</span>
@@ -183,10 +199,7 @@ export default function Header({ user, access, configAvailable }: HeaderProps) {
                 </MenuItem>
               ))}
               <MenuSeparator />
-              <MenuItem
-                variant="danger"
-                onClick={() => submit({}, { action: "/logout", method: "POST" })}
-              >
+              <MenuItem variant="danger" onClick={logout}>
                 Logout
               </MenuItem>
             </MenuContent>

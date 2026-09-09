@@ -2,8 +2,11 @@ node_modules
 /.react-router
 /.cache
 /build
+/build-ssr
 /test
 .env
+# Local push-helper state (never commit)
+/.gh-push-state.json
 /app/hp_ssh.wasm
 /app/wasm_exec.js
 

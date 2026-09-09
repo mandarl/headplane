@@ -5,6 +5,19 @@ import log from "~/utils/log";
 
 import type { Route } from "./+types/page";
 
+// MARK: Phase 0 interim — JSON failure contract.
+//
+// The login page is now an SPA route whose clientAction forwards the form to
+// this endpoint with fetch (a document POST, not an RR data request) and
+// reads the failure body as JSON. The failure MUST use status 200: React
+// Router converts action Responses with a 4xx/5xx status into error pages
+// for document requests, while a 200 Response passes through untouched.
+// Success is still a 302 to /machines with the session Set-Cookie, which
+// fetch follows.
+function loginFailure(message: string): Response {
+  return Response.json({ success: false, message });
+}
+
 export async function loginAction({ request, context }: Route.LoaderArgs) {
   const formData = await request.formData();
   const apiKey = formData.has("api_key") ? String(formData.get("api_key")) : undefined;
@@ -15,10 +28,7 @@ export async function loginAction({ request, context }: Route.LoaderArgs) {
       "auth",
       "If this is unexpected, ensure your reverse proxy (if applicable) is configured correctly",
     );
-    return {
-      success: false,
-      message: "Missing API key. Please enter your API key.",
-    };
+    return loginFailure("Missing API key. Please enter your API key.");
   }
 
   if (apiKey.length === 0) {
@@ -27,10 +37,7 @@ export async function loginAction({ request, context }: Route.LoaderArgs) {
       "auth",
       "If this is unexpected, ensure your reverse proxy (if applicable) is configured correctly",
     );
-    return {
-      success: false,
-      message: "API key cannot be empty. Please enter a valid API key.",
-    };
+    return loginFailure("API key cannot be empty. Please enter a valid API key.");
   }
 
   // Build a client with the candidate API key the user just submitted, so the
@@ -46,26 +53,19 @@ export async function loginAction({ request, context }: Route.LoaderArgs) {
     // the dumbest thing I've ever seen.
     const lookup = apiKeys.find((key) => apiKey.startsWith(key.prefix.replaceAll("*", "")));
     if (!lookup) {
-      return {
-        success: false,
-        message: "API key was not found in the Headscale database",
-      };
+      return loginFailure("API key was not found in the Headscale database");
     }
 
     if (lookup.expiration === null || lookup.expiration === undefined) {
       log.error("auth", "Got an API key without an expiration");
-      return {
-        success: false,
-        message: "API key is malformed (missing expiration). Please generate a new API key.",
-      };
+      return loginFailure(
+        "API key is malformed (missing expiration). Please generate a new API key.",
+      );
     }
 
     const expiry = new Date(lookup.expiration);
     if (expiry.getTime() < Date.now()) {
-      return {
-        success: false,
-        message: "API key has expired",
-      };
+      return loginFailure("API key has expired");
     }
 
     return redirect("/machines", {
@@ -87,18 +87,12 @@ export async function loginAction({ request, context }: Route.LoaderArgs) {
         apiError.statusCode === 403 ||
         (apiError.statusCode === 500 && apiError.rawData.trim() === "Unauthorized")
       ) {
-        return {
-          success: false,
-          message: "API key is invalid (it may be incorrect or expired)",
-        };
+        return loginFailure("API key is invalid (it may be incorrect or expired)");
       }
     }
 
     log.error("auth", "Error while validating API key: %s", error);
     log.debug("auth", "Error details: %o", error);
-    return {
-      success: false,
-      message: "Error while validating API key (see logs for details)",
-    };
+    return loginFailure("Error while validating API key (see logs for details)");
   }
 }

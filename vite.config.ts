@@ -73,7 +73,12 @@ export default defineConfig(({ command, isSsrBuild }) => ({
             // `build/server/index.js`. It transitively imports the
             // SSR entry, which pulls in the React Router server build
             // via the virtual module `virtual:react-router/server-build`.
-            input: isSsrBuild ? PROD_ENTRY : undefined,
+            //
+            // Not applied to the SPA build (`ssr: false`): there the
+            // "server build" only exists so React Router can prerender
+            // `index.html`, and it must keep its default virtual entry
+            // for the plugin's manifest lookup to find it.
+            input: isSsrBuild && process.env.HEADPLANE_SPA_BUILD !== "1" ? PROD_ENTRY : undefined,
 
             // Exclude WASM from the client since it fetches from the server
             external: isSsrBuild ? [] : [/\.wasm(\?url)?$/],
@@ -86,5 +91,10 @@ export default defineConfig(({ command, isSsrBuild }) => ({
   define: {
     __VERSION__: JSON.stringify(isNext ? `${VERSION}-next` : VERSION),
     __PREFIX__: JSON.stringify(PREFIX),
+    // Which server ships this bundle: the SPA build (HEADPLANE_SPA_BUILD=1)
+    // is served by the Go API server; the SSR build by the Node server.
+    __SERVER_KIND__: JSON.stringify(
+      process.env.HEADPLANE_SPA_BUILD === "1" ? "Go" : "Node",
+    ),
   },
 }));

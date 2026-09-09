@@ -30,6 +30,7 @@ rec {
       formatter = pkgs.alejandra;
       packages = {
         headplane = pkgs.callPackage ./nix/package.nix {headplane-ssh-wasm = packages.headplane-ssh-wasm;};
+        headplane-go = pkgs.callPackage ./nix/go-server.nix {};
         headplane-agent = pkgs.callPackage ./nix/agent.nix {};
         headplane-nixos-docs = pkgs.callPackage ./nix/docs.nix {};
         headplane-ssh-wasm = pkgs.callPackage ./nix/ssh-wasm.nix {};
@@ -66,6 +67,7 @@ rec {
     // {
       overlays.default = final: prev: {
         headplane = final.callPackage ./nix/package.nix {headplane-ssh-wasm = final.headplane-ssh-wasm;};
+        headplane-go = final.callPackage ./nix/go-server.nix {};
         headplane-agent = final.callPackage ./nix/agent.nix {};
         headplane-nixos-docs = final.callPackage ./nix/docs.nix {};
         headplane-ssh-wasm = final.callPackage ./nix/ssh-wasm.nix {};

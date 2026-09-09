@@ -1,58 +1,94 @@
 import { AlertCircle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Form, Link as RouterLink, redirect, useSearchParams } from "react-router";
+import {
+  Form,
+  Link as RouterLink,
+  redirect,
+  redirectDocument,
+  useSearchParams,
+} from "react-router";
 
 import Button from "~/components/button";
 import Card from "~/components/card";
 import Code from "~/components/code";
 import Input from "~/components/input";
 import Link from "~/components/link";
+import type { OidcErrorCode } from "~/server/oidc/provider";
 import { useLiveData } from "~/utils/live-data";
 
 import type { Route } from "./+types/page";
-import { loginAction } from "./action";
 import { OidcConfigErrorNotice, OidcDiscoveryFailedNotice } from "./config-error";
 import Logout from "./logout";
 import { OidcErrorNotice } from "./oidc-error";
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  try {
-    await context.auth.require(request);
-    return redirect("/machines");
-  } catch {}
+// The server-driven login action, re-exported through an indirection so the
+// SPA build's route-module validator (which scans static export names for
+// server-only exports) does not see it. See login-action.ts.
+export * from "./login-action";
+
+interface LoginConfig {
+  oidcEnabled: boolean;
+  oidcErrorCodes: OidcErrorCode[];
+  cookieSecure: boolean;
+  disableApiKeyLogin: boolean;
+}
+
+export async function clientLoader({ request }: Route.ClientLoaderArgs) {
+  // The v1 boot endpoint is public for its `login` section: on 401 it still
+  // returns the login configuration (mirrors the old server loader, which
+  // ran without a session on this page).
+  const res = await fetch(`${__PREFIX__}/api/v1/boot`, { credentials: "include" });
+  if (res.ok) {
+    // Already authenticated — the old loader redirected to /machines.
+    throw redirect("/machines");
+  }
+  const body = (await res.json().catch(() => null)) as { login?: LoginConfig } | null;
+  const login: LoginConfig = body?.login ?? {
+    oidcEnabled: false,
+    oidcErrorCodes: [],
+    cookieSecure: false,
+    disableApiKeyLogin: false,
+  };
 
   const qp = new URL(request.url).searchParams;
   const urlState = qp.get("s") ?? undefined;
 
-  const oidcService = context.oidc.state === "enabled" ? context.oidc.value : undefined;
-  const oidcStatus = oidcService
-    ? await oidcService.discover().then(
-        (r) => (r.ok ? oidcService.status() : oidcService.status()),
-        () => oidcService.status(),
-      )
-    : undefined;
-
-  if (
-    oidcService &&
-    context.config.oidc?.disable_api_key_login &&
-    oidcStatus?.state === "ready" &&
-    urlState !== "logout"
-  ) {
-    return redirect("/oidc/start");
+  if (login.oidcEnabled && login.disableApiKeyLogin && urlState !== "logout") {
+    // Server-driven OIDC flow — needs a full document navigation, not a
+    // client-side route change (there is no /oidc/start SPA route).
+    throw redirectDocument(`${__PREFIX__}/oidc/start`);
   }
 
-  const isOidcConnectorEnabled = oidcStatus?.state === "ready";
-  const oidcErrorCodes = oidcStatus?.state === "error" ? [oidcStatus.error.code] : [];
-
   return {
-    isCookieSecureEnabled: context.config.server.cookie_secure,
-    isOidcConnectorEnabled,
-    oidcErrorCodes,
+    isCookieSecureEnabled: login.cookieSecure,
+    isOidcConnectorEnabled: login.oidcEnabled,
+    oidcErrorCodes: login.oidcErrorCodes,
     urlState,
   };
 }
 
-export const action = loginAction;
+export async function clientAction({ request }: Route.ClientActionArgs) {
+  // Forward the credentials to the Go server's POST /login, which speaks
+  // plain JSON: success is a 302 to /machines with the session cookie set
+  // (fetch follows it, so we detect it via res.redirected); failure is a
+  // 200 JSON {success:false,message} body.
+  const res = await fetch(`${__PREFIX__}/login`, {
+    method: "POST",
+    body: await request.formData(),
+    credentials: "include",
+  });
+  if (res.redirected) {
+    // The server issued a session cookie and sent us to /machines —
+    // continue client-side so the SPA boots authenticated.
+    const url = new URL(res.url);
+    throw redirect(url.pathname + url.search);
+  }
+  const data = (await res.json()) as { success?: boolean; message?: string };
+  if (data && data.success === false) {
+    return data;
+  }
+  throw new Error("Login failed with an unexpected response");
+}
 
 export default function Page({ loaderData, actionData }: Route.ComponentProps) {
   const { isCookieSecureEnabled, isOidcConnectorEnabled, oidcErrorCodes, urlState } = loaderData;
