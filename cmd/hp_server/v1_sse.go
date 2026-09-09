@@ -79,19 +79,21 @@ func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {
 	events, unsubscribe := s.liveStore.Subscribe()
 	defer unsubscribe()
 
-	// Replay anything missed since the client's last event (native
-	// EventSource resends Last-Event-ID automatically on reconnect).
-	var since uint64
-	if hdr := r.Header.Get("Last-Event-ID"); hdr != "" {
-		since, _ = strconv.ParseUint(strings.TrimSpace(hdr), 10, 64)
-	}
-	replayed := s.liveStore.Replay(since)
-
 	// The hello carries the current version map; it always comes first so
-	// the client can synchronize, then any missed changes replay.
+	// the client can synchronize.
 	writeEvent(0, "hello", s.liveStore.Versions())
-	for _, ev := range replayed {
-		writeEvent(ev.ID, "changed", map[string]string{"resource": ev.Resource, "version": ev.Version})
+
+	// Then replay anything missed since the client's last event (native
+	// EventSource resends Last-Event-ID automatically on reconnect). On a
+	// fresh connect there is no Last-Event-ID and nothing to catch up —
+	// the hello already carries the current versions — so skip the ring
+	// rather than dumping up to replayCap stale events the client just
+	// dedupes away.
+	if hdr := strings.TrimSpace(r.Header.Get("Last-Event-ID")); hdr != "" {
+		since, _ := strconv.ParseUint(hdr, 10, 64)
+		for _, ev := range s.liveStore.Replay(since) {
+			writeEvent(ev.ID, "changed", map[string]string{"resource": ev.Resource, "version": ev.Version})
+		}
 	}
 
 	heartbeat := time.NewTicker(sseHeartbeatInterval)
