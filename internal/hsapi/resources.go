@@ -3,6 +3,7 @@ package hsapi
 import (
 	"encoding/json"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -19,10 +20,31 @@ type Node map[string]any
 // User is a Headscale user object.
 type User map[string]any
 
+// sortStringSet sorts a []any-of-string field in place. Headscale returns
+// approvedRoutes / availableRoutes / subnetRoutes as unordered sets whose
+// element order varies between otherwise-identical responses; sorting them
+// keeps the node payload byte-stable so the live store's change detection
+// doesn't fire spuriously (and the v1 responses stay deterministic).
+func sortStringSet(raw map[string]any, key string) {
+	arr, ok := raw[key].([]any)
+	if !ok || len(arr) < 2 {
+		return
+	}
+	slices.SortFunc(arr, func(a, b any) int {
+		as, _ := a.(string)
+		bs, _ := b.(string)
+		return strings.Compare(as, bs)
+	})
+}
+
 // normalizeNode mirrors the normalize() closure in resources/nodes.ts:
 // on 0.28+ the wire already carries flat tags; older servers returned
 // forcedTags/validTags that the client unions (deduped, order-preserving).
+// It also sorts Headscale's set-valued route fields for a stable payload.
 func (c *Client) normalizeNode(raw map[string]any) Node {
+	for _, k := range []string{"approvedRoutes", "availableRoutes", "subnetRoutes"} {
+		sortStringSet(raw, k)
+	}
 	if c.caps.NodeTagsAreFlat {
 		if _, ok := raw["tags"]; !ok {
 			raw["tags"] = []any{}

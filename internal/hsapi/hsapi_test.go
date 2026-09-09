@@ -177,6 +177,44 @@ func TestNormalizeNodeTags(t *testing.T) {
 	}
 }
 
+func TestNormalizeNodeSortsRouteSets(t *testing.T) {
+	c := NewClient("http://x", "k", "", Capabilities{NodeTagsAreFlat: true}, testLogger())
+	// Headscale returns these sets in arbitrary, request-varying order.
+	n := c.normalizeNode(map[string]any{
+		"id":              "1",
+		"approvedRoutes":  []any{"192.168.200.0/21", "10.0.0.0/24", "::/0"},
+		"availableRoutes": []any{"::/0", "192.168.200.0/21", "0.0.0.0/0", "10.0.0.0/24"},
+		"subnetRoutes":    []any{"10.0.10.0/23", "10.0.0.0/24"},
+	})
+	want := map[string][]string{
+		"approvedRoutes":  {"10.0.0.0/24", "192.168.200.0/21", "::/0"},
+		"availableRoutes": {"0.0.0.0/0", "10.0.0.0/24", "192.168.200.0/21", "::/0"},
+		"subnetRoutes":    {"10.0.0.0/24", "10.0.10.0/23"},
+	}
+	for k, exp := range want {
+		got := n[k].([]any)
+		if len(got) != len(exp) {
+			t.Fatalf("%s len = %d, want %d", k, len(got), len(exp))
+		}
+		for i := range exp {
+			if got[i] != exp[i] {
+				t.Fatalf("%s = %v, want %v", k, got, exp)
+			}
+		}
+	}
+
+	// Two responses that differ only in element order must normalize to
+	// byte-identical JSON (this is what stops the live store from firing a
+	// spurious "changed" every poll).
+	a := c.normalizeNode(map[string]any{"id": "1", "approvedRoutes": []any{"b", "a", "c"}})
+	b := c.normalizeNode(map[string]any{"id": "1", "approvedRoutes": []any{"c", "b", "a"}})
+	ja, _ := json.Marshal(a)
+	jb, _ := json.Marshal(b)
+	if string(ja) != string(jb) {
+		t.Fatalf("reordered routes did not normalize equal:\n %s\n %s", ja, jb)
+	}
+}
+
 func TestRenameNodeEscapesName(t *testing.T) {
 	c, _ := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.EscapedPath(), "/api/v1/node/1/rename/my%20node") {

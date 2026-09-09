@@ -330,9 +330,9 @@ func TestV1Machines(t *testing.T) {
 func TestV1MachinesCustomRoutingModernShape(t *testing.T) {
 	stub := defaultStub()
 	stub.nodes = []map[string]any{{
-		"id":             "1",
-		"name":           "node1",
-		"user":           map[string]any{"id": "1", "name": "alice"},
+		"id":              "1",
+		"name":            "node1",
+		"user":            map[string]any{"id": "1", "name": "alice"},
 		"availableRoutes": []any{"0.0.0.0/0", "::/0", "10.0.0.0/24", "10.1.0.0/24"},
 		"approvedRoutes":  []any{"::/0", "10.0.0.0/24"},
 		"expiry":          "2099-01-01T00:00:00Z",
@@ -344,7 +344,10 @@ func TestV1MachinesCustomRoutingModernShape(t *testing.T) {
 	}
 	n := decodeBody(t, rec)["populatedNodes"].([]any)[0].(map[string]any)
 
-	if got := strSlice(n["availableRoutes"]); !equalStrs(got, []string{"0.0.0.0/0", "::/0", "10.0.0.0/24", "10.1.0.0/24"}) {
+	// normalizeNode sorts the route sets for a byte-stable payload, so the
+	// order here is sorted, not the input order — the point is that all
+	// four routes survive (not clobbered to []).
+	if got := strSlice(n["availableRoutes"]); !equalStrs(got, []string{"0.0.0.0/0", "10.0.0.0/24", "10.1.0.0/24", "::/0"}) {
 		t.Fatalf("availableRoutes = %v (must not be clobbered)", got)
 	}
 	cr := n["customRouting"].(map[string]any)

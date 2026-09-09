@@ -31,10 +31,34 @@ export function LiveDataProvider({ children }: LiveDataProps) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backoffRef = useRef(1000);
+  const lastRevalidateRef = useRef(0);
+  const trailingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Rate-limit revalidations to at most one per this window. A reconnect
+  // replays every buffered `changed` event (Last-Event-ID resumption), and
+  // a chatty/misbehaving server could emit them continuously; without a
+  // floor here that becomes a tight revalidate → refetch loop. A request
+  // that arrives inside the window schedules one trailing revalidation so
+  // no change is lost.
+  const MIN_REVALIDATE_INTERVAL_MS = 2000;
 
   const revalidateIfIdle = useCallback(() => {
-    if (revalidatorRef.current.state === "idle") {
-      revalidatorRef.current.revalidate();
+    const run = () => {
+      if (revalidatorRef.current.state === "idle") {
+        lastRevalidateRef.current = Date.now();
+        revalidatorRef.current.revalidate();
+      }
+    };
+    const elapsed = Date.now() - lastRevalidateRef.current;
+    if (elapsed >= MIN_REVALIDATE_INTERVAL_MS) {
+      run();
+      return;
+    }
+    if (trailingTimerRef.current === null) {
+      trailingTimerRef.current = setTimeout(() => {
+        trailingTimerRef.current = null;
+        run();
+      }, MIN_REVALIDATE_INTERVAL_MS - elapsed);
     }
   }, []);
 
@@ -101,6 +125,11 @@ export function LiveDataProvider({ children }: LiveDataProps) {
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current);
         reconnectTimer.current = null;
+      }
+
+      if (trailingTimerRef.current) {
+        clearTimeout(trailingTimerRef.current);
+        trailingTimerRef.current = null;
       }
     };
   }, [paused, revalidateIfIdle]);
