@@ -106,7 +106,7 @@ export default function MachineRow({
       {/* We pass undefined when agents are not enabled */}
       {isAgent !== undefined ? (
         <td className="py-2">
-          {node.hostInfo !== undefined ? (
+          {node.hostInfo ? (
             <>
               <p className="leading-snug">{hinfo.getTSVersion(node.hostInfo)}</p>
               <p className="max-w-48 truncate text-sm opacity-50">
