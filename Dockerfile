@@ -15,7 +15,10 @@ COPY drizzle/ ./drizzle/
 ARG TARGETOS
 ARG TARGETARCH
 ARG IMAGE_TAG
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0 IMAGE_TAG=$IMAGE_TAG \
+# Mount (don't layer) the Go build cache so unchanged packages are not
+# recompiled on every push.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+	GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0 IMAGE_TAG=$IMAGE_TAG \
 	./build.sh --wasm --agent --fake-shell --healthcheck \
 		--server \
 		--wasm-output /bin/hp_ssh.wasm \
@@ -61,6 +64,13 @@ ARG HEADPLANE_VERSION
 ARG BUILD_TIME
 
 RUN corepack enable
+# Install dependencies in their own layer so source-only pushes skip the
+# install entirely; the pnpm store is cache-mounted so lockfile changes
+# only fetch what is new instead of re-downloading everything.
+COPY package.json pnpm-lock.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+	pnpm install --frozen-lockfile
+
 # Full source tree: the SPA build needs app/, public/, configs, etc.
 COPY . ./
 
