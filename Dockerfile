@@ -60,14 +60,18 @@ RUN HEADPLANE_VERSION=$HEADPLANE_VERSION BUILD_TIME=$BUILD_TIME ./build.sh --app
 FROM --platform=$BUILDPLATFORM node:24-slim AS spa-base
 WORKDIR /run
 
-ARG HEADPLANE_VERSION
-ARG BUILD_TIME
+# CI=true makes pnpm fail instead of blocking on an interactive prompt
+# (e.g. "modules directory will be removed and reinstalled").
+ENV CI=true
 
 RUN corepack enable
 # Install dependencies in their own layer so source-only pushes skip the
 # install entirely; the pnpm store is cache-mounted so lockfile changes
-# only fetch what is new instead of re-downloading everything.
-COPY package.json pnpm-lock.yaml ./
+# only fetch what is new instead of re-downloading everything. Copy every
+# input pnpm reads (.npmrc, patches/) so the install inside
+# `build.sh --spa` sees identical settings and is a no-op.
+COPY package.json pnpm-lock.yaml .npmrc ./
+COPY patches ./patches
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 	pnpm install --frozen-lockfile
 
@@ -77,6 +81,9 @@ COPY . ./
 COPY --from=go-base /bin/hp_ssh.wasm /run/public/hp_ssh.wasm
 COPY --from=go-base /bin/hp_rdp.wasm /run/public/hp_rdp.wasm
 COPY --from=go-base /bin/wasm_exec.js /run/public/wasm_exec.js
+# Per-push args go last so they don't invalidate the dependency layer.
+ARG HEADPLANE_VERSION
+ARG BUILD_TIME
 RUN HEADPLANE_VERSION=$HEADPLANE_VERSION BUILD_TIME=$BUILD_TIME ./build.sh --spa --skip-pnpm-prune --skip-path-checks
 
 FROM gcr.io/distroless/nodejs24-debian13:latest AS final
