@@ -56,6 +56,8 @@ RUN HEADPLANE_VERSION=$HEADPLANE_VERSION ./build.sh --app
 FROM --platform=$BUILDPLATFORM node:24-slim AS spa-base
 WORKDIR /run
 
+ARG HEADPLANE_VERSION
+
 RUN corepack enable
 # Full source tree: the SPA build needs app/, public/, configs, etc.
 COPY . ./
@@ -63,7 +65,7 @@ COPY . ./
 COPY --from=go-base /bin/hp_ssh.wasm /run/public/hp_ssh.wasm
 COPY --from=go-base /bin/hp_rdp.wasm /run/public/hp_rdp.wasm
 COPY --from=go-base /bin/wasm_exec.js /run/public/wasm_exec.js
-RUN ./build.sh --spa --skip-pnpm-prune --skip-path-checks
+RUN HEADPLANE_VERSION=$HEADPLANE_VERSION ./build.sh --spa --skip-pnpm-prune --skip-path-checks
 
 FROM gcr.io/distroless/nodejs24-debian13:latest AS final
 COPY --from=js-base /run/build /app/build

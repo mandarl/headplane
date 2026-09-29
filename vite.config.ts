@@ -16,11 +16,19 @@ if (PREFIX.endsWith("/")) {
   throw new Error("Prefix must not end with a slash");
 }
 
-// Derive version: HEADPLANE_VERSION env > git describe > package.json
+// Derive version so every pushed image is visually distinct in the footer.
+// Docker CI passes HEADPLANE_VERSION=<full commit SHA>; render that as
+// <package.json version>+<short SHA> to match the image's sha-<short> tag.
+// A non-SHA HEADPLANE_VERSION is used verbatim, otherwise fall back to
+// git describe and then package.json.
 const isNext = process.env.IMAGE_TAG?.includes("next");
+const envVersion = process.env.HEADPLANE_VERSION;
 let VERSION: string;
-if (process.env.HEADPLANE_VERSION) {
-  VERSION = process.env.HEADPLANE_VERSION;
+if (envVersion && /^[0-9a-f]{40}$/i.test(envVersion)) {
+  const pkgJson = await readFile("package.json", "utf-8");
+  VERSION = `${JSON.parse(pkgJson).version}+${envVersion.slice(0, 7)}`;
+} else if (envVersion) {
+  VERSION = envVersion;
 } else {
   try {
     const describe = execSync("git describe --tags", { encoding: "utf-8" })
