@@ -1,4 +1,4 @@
-import { Loader2, WifiOff } from "lucide-react";
+import { AlertCircle, Loader2, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   data,
@@ -21,6 +21,12 @@ import type { HeadplaneSSH } from "./wasm.client";
 import { loadHeadplaneWASM } from "./wasm.client";
 
 const WASM_MODULE_URL = `${__PREFIX__}/hp_ssh.wasm`;
+
+// Backstops so the page never spins forever. The Go client also bounds the
+// dial and SSH handshake, but a stalled tailnet join or a swallowed failure
+// would otherwise leave the "Connecting…" overlay up indefinitely.
+const JOIN_TIMEOUT_MS = 45_000;
+const CONNECT_TIMEOUT_MS = 75_000;
 
 export const shouldRevalidate: ShouldRevalidateFunction = ({ currentUrl, nextUrl }) => {
   // Only revalidate when transitioning from no-user to user (UserPrompt → SSHConsole).
@@ -114,6 +120,23 @@ function SSHConsole({
   const [ssh, setSsh] = useState<HeadplaneSSH | null>(null);
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState("Starting tunnel…");
+  const [error, setError] = useState<string | null>(null);
+
+  // Overall timeout: fail if the session isn't established in time. The timer
+  // restarts for each phase (joining the tailnet, then opening the session).
+  useEffect(() => {
+    if (connected || error) return;
+    const timer = setTimeout(
+      () =>
+        setError(
+          ssh
+            ? `Timed out connecting to ${hostname}. Check that the SSH username "${username}" exists on the machine and that it is online.`
+            : "Timed out joining the tailnet. Check that Headscale is reachable and try again.",
+        ),
+      ssh ? CONNECT_TIMEOUT_MS : JOIN_TIMEOUT_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [ssh, connected, error, hostname, username]);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,7 +161,10 @@ function SSHConsole({
             setSsh(instance);
           }
         },
-        onError: (msg) => console.error("[ssh] IPN error:", msg),
+        onError: (msg) => {
+          console.error("[ssh] IPN error:", msg);
+          if (!cancelled) setError(msg);
+        },
       });
 
       console.log("[ssh] IPN instance created", instance);
@@ -153,10 +179,21 @@ function SSHConsole({
     <div className="fixed inset-0 flex flex-col bg-black">
       {!connected && (
         <div className="absolute inset-0 z-50 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="size-8 animate-spin text-mist-200" />
-            <p className="text-sm text-mist-400">{status}</p>
-          </div>
+          {error ? (
+            <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center">
+              <AlertCircle className="size-8 text-red-500" />
+              <p className="text-sm font-medium text-mist-200">Could not connect to {hostname}</p>
+              <p className="text-sm break-words whitespace-pre-wrap text-mist-400">{error}</p>
+              <Button className="mt-2" onClick={() => window.location.reload()}>
+                Try again
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="size-8 animate-spin text-mist-200" />
+              <p className="text-sm text-mist-400">{status}</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -167,6 +204,11 @@ function SSHConsole({
           password={password}
           ipAddress={node.ipAddress}
           onConnected={() => setConnected(true)}
+          onFailed={(output) =>
+            setError(
+              output || `The connection to ${hostname} was closed before it was established.`,
+            )
+          }
         />
       )}
     </div>

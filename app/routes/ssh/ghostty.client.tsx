@@ -18,8 +18,24 @@ const HEADPLANE_THEME: GhosttyTheme = {
   raw: {},
 };
 
-function createSSHTransport(ssh: HeadplaneSSH, ipAddress: string, username: string, password?: string): PtyTransport {
+// Strips ANSI escape sequences so terminal output can be shown as plain text.
+function stripAnsi(text: string) {
+  // oxlint-disable-next-line no-control-regex
+  return text.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "").trim();
+}
+
+function createSSHTransport(
+  ssh: HeadplaneSSH,
+  ipAddress: string,
+  username: string,
+  password: string | undefined,
+  onFailed: (output: string) => void,
+): PtyTransport {
   let session: TunnelSession | null = null;
+  let established = false;
+  // Output received before the session is established (e.g. "SSH error: …").
+  // The connecting overlay hides the terminal, so surface it as an error instead.
+  let early = "";
 
   return {
     connect(options) {
@@ -27,11 +43,18 @@ function createSSHTransport(ssh: HeadplaneSSH, ipAddress: string, username: stri
         ipAddress,
         username,
         password,
-        onData: (data) => options.callbacks.onData?.(data),
-        onConnect: () => options.callbacks.onConnect?.(),
+        onData: (data) => {
+          if (!established && early.length < 4096) early += data;
+          options.callbacks.onData?.(data);
+        },
+        onConnect: () => {
+          established = true;
+          options.callbacks.onConnect?.();
+        },
         onDisconnect: () => {
           options.callbacks.onDisconnect?.();
           session = null;
+          if (!established) onFailed(stripAnsi(early));
         },
       });
 
@@ -67,15 +90,23 @@ interface GhosttyProps {
   username: string;
   password?: string;
   onConnected: () => void;
+  onFailed: (output: string) => void;
 }
 
-export default function Ghostty({ ssh, ipAddress, username, password, onConnected }: GhosttyProps) {
+export default function Ghostty({
+  ssh,
+  ipAddress,
+  username,
+  password,
+  onConnected,
+  onFailed,
+}: GhosttyProps) {
   const divRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!divRef.current) return;
 
-    const transport = createSSHTransport(ssh, ipAddress, username, password);
+    const transport = createSSHTransport(ssh, ipAddress, username, password, onFailed);
     const restty = new Restty({
       root: divRef.current,
       createInitialPane: true,
