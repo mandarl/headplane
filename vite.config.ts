@@ -98,6 +98,11 @@ export default defineConfig(({ command, isSsrBuild }) => ({
   },
   define: {
     __VERSION__: JSON.stringify(isNext ? `${VERSION}-next` : VERSION),
+    // Bake the build moment in (UTC ISO from CI via BUILD_TIME, otherwise
+    // now) so the footer can show at a glance how fresh a deployment is.
+    __BUILD_TIME__: JSON.stringify(
+      process.env.BUILD_TIME || new Date().toISOString(),
+    ),
     __PREFIX__: JSON.stringify(PREFIX),
     // Which server ships this bundle: the SPA build (HEADPLANE_SPA_BUILD=1)
     // is served by the Go API server; the SSR build by the Node server.

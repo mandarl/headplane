@@ -12,6 +12,19 @@ export interface FooterProps {
 export default function Footer({ isDebug, baseUrl }: FooterProps) {
   const [urlVisible, setUrlVisible] = useState(false);
 
+  // Build moment baked in at build time (UTC ISO); rendered in the viewer's
+  // local timezone so a glance shows how fresh this deployment is.
+  const buildDate = new Date(__BUILD_TIME__);
+  const buildLabel =
+    __BUILD_TIME__ && !Number.isNaN(buildDate.getTime())
+      ? buildDate.toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : "";
+
   return (
     <footer
       className={cn(
@@ -51,7 +64,8 @@ export default function Footer({ isDebug, baseUrl }: FooterProps) {
             </span>
           )}
           <p className="text-mist-500 dark:text-mist-400">
-            {__VERSION__} &middot;{" "}
+            {__VERSION__}
+            {buildLabel !== "" && ` \u00b7 built ${buildLabel}`} &middot;{" "}
             {urlVisible ? (
               <code>{baseUrl}</code>
             ) : (

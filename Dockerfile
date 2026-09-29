@@ -49,7 +49,8 @@ RUN ./build.sh --app --app-install-only
 
 COPY . .
 ARG HEADPLANE_VERSION
-RUN HEADPLANE_VERSION=$HEADPLANE_VERSION ./build.sh --app
+ARG BUILD_TIME
+RUN HEADPLANE_VERSION=$HEADPLANE_VERSION BUILD_TIME=$BUILD_TIME ./build.sh --app
 
 # SPA bundle for the Go server: the same `build/client` tree that
 # `hp_server` serves by default (see --client-dir).
@@ -57,6 +58,7 @@ FROM --platform=$BUILDPLATFORM node:24-slim AS spa-base
 WORKDIR /run
 
 ARG HEADPLANE_VERSION
+ARG BUILD_TIME
 
 RUN corepack enable
 # Full source tree: the SPA build needs app/, public/, configs, etc.
@@ -65,7 +67,7 @@ COPY . ./
 COPY --from=go-base /bin/hp_ssh.wasm /run/public/hp_ssh.wasm
 COPY --from=go-base /bin/hp_rdp.wasm /run/public/hp_rdp.wasm
 COPY --from=go-base /bin/wasm_exec.js /run/public/wasm_exec.js
-RUN HEADPLANE_VERSION=$HEADPLANE_VERSION ./build.sh --spa --skip-pnpm-prune --skip-path-checks
+RUN HEADPLANE_VERSION=$HEADPLANE_VERSION BUILD_TIME=$BUILD_TIME ./build.sh --spa --skip-pnpm-prune --skip-path-checks
 
 FROM gcr.io/distroless/nodejs24-debian13:latest AS final
 COPY --from=js-base /run/build /app/build

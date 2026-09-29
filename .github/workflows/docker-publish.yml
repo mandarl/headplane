@@ -40,6 +40,9 @@ jobs:
             type=sha,prefix=sha-,format=short
             type=raw,value=go-latest,enable={{is_default_branch}}
 
+      - name: Set build timestamp
+        run: echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -53,5 +56,6 @@ jobs:
           build-args: |
             IMAGE_TAG=${{ github.sha }}
             HEADPLANE_VERSION=${{ github.sha }}
+            BUILD_TIME=${{ env.BUILD_TIME }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

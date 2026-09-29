@@ -2,4 +2,5 @@
 
 declare const __PREFIX__: string;
 declare const __VERSION__: string;
+declare const __BUILD_TIME__: string;
 declare const __SERVER_KIND__: string;
