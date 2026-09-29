@@ -11,12 +11,12 @@ func TestWebAuthnDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	// No webauthn section: passkeys stay disabled.
+	// No webauthn section: passkeys are enabled by default.
 	if cfg.WebAuthn != nil {
 		t.Fatalf("WebAuthn should be nil when the section is absent")
 	}
-	if cfg.WebAuthn.IsEnabled() {
-		t.Errorf("IsEnabled on nil section should be false")
+	if !cfg.WebAuthn.IsEnabled() {
+		t.Errorf("IsEnabled on nil section should default to true")
 	}
 }
 

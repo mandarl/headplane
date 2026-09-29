@@ -133,10 +133,9 @@ func (g *RDPGatewayConfig) IsEnabled() bool {
 	return g != nil && (g.Enabled == nil || *g.Enabled)
 }
 
-// WebAuthnConfig mirrors the `webauthn` section. Enabled is a *bool because
-// the schema default is enabled=true when the section is present: nil means
-// "not specified" and validates to true, while an explicit
-// `enabled: false` disables passkey login/registration. RPID overrides the
+// WebAuthnConfig mirrors the `webauthn` section. Passkeys are enabled by
+// default; set `enabled: false` to disable them. Enabled is a *bool so that
+// "not specified" (nil) validates to the default. RPID overrides the
 // relying-party ID derived from the request host; set it when headplane
 // sits behind a reverse proxy under a different public hostname.
 type WebAuthnConfig struct {
@@ -144,11 +143,10 @@ type WebAuthnConfig struct {
 	RPID    string `yaml:"rp_id"`
 }
 
-// IsEnabled reports whether the webauthn section enables passkeys. A nil
-// receiver or nil Enabled (e.g. a struct built without validate()) means
-// the schema default: enabled.
+// IsEnabled reports whether passkey login is enabled. A nil receiver
+// (section absent) or nil Enabled means the default: enabled.
 func (w *WebAuthnConfig) IsEnabled() bool {
-	return w != nil && (w.Enabled == nil || *w.Enabled)
+	return w == nil || w.Enabled == nil || *w.Enabled
 }
 
 // Config is the fully-resolved headplane configuration.

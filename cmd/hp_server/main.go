@@ -122,7 +122,7 @@ func main() {
 		srv.passkeySvc = passkey.NewService(authSvc.DB(), rpIDOverride, logger)
 		logger.Info("passkey login enabled", "rp_id_override", rpIDOverride)
 	} else {
-		logger.Info("passkey login disabled", "reason", "webauthn section absent or enabled=false")
+		logger.Info("passkey login disabled", "reason", "webauthn.enabled=false in config")
 	}
 
 	// Phase 3: OIDC. newOidcService mirrors buildOidc in
