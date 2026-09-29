@@ -138,6 +138,20 @@ function isUserCancel(error: unknown, startedAt: number, timeoutMs?: number): bo
 }
 
 /**
+ * One-line ceremony diagnostics for the browser console. Only fires during
+ * user-initiated passkey ceremonies, so it stays out of the way otherwise.
+ */
+function log(step: string, detail?: unknown): void {
+  if (detail === undefined) {
+    // eslint-disable-next-line no-console
+    console.log(`[passkey] ${step}`);
+  } else {
+    // eslint-disable-next-line no-console
+    console.log(`[passkey] ${step}`, detail);
+  }
+}
+
+/**
  * Run a WebAuthn ceremony call with a hard client-side deadline. A browser
  * can leave navigator.credentials.create/get pending forever without ever
  * showing its prompt (for example when an earlier ceremony got wedged);
@@ -150,7 +164,12 @@ async function ceremonyWithTimeout<T>(
 ): Promise<T> {
   const timeoutMs = typeof options.timeout === "number" ? options.timeout : 120000;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs + 5000);
+  const timer = setTimeout(() => {
+    log(
+      `client-side timeout fired after ${timeoutMs + 5000}ms; aborting browser call`,
+    );
+    ctrl.abort();
+  }, timeoutMs + 5000);
   try {
     return await run(ctrl.signal);
   } finally {
@@ -164,10 +183,26 @@ async function ceremonyWithTimeout<T>(
  * ceremony throws PasskeyCancelledError so callers can stay quiet.
  */
 export async function registerPasskey(label: string): Promise<void> {
+  log("register: requesting options");
   const { token, options } = await postOptions("/passkeys/register/options");
+  log("register: options received", {
+    rpId: options.rp?.id,
+    timeout: options.timeout,
+    residentKey: options.authenticatorSelection?.residentKey,
+    userVerification: options.authenticatorSelection?.userVerification,
+    hints: (options as { hints?: string[] }).hints,
+  });
+  try {
+    const uvpaa =
+      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable?.();
+    log("register: isUserVerifyingPlatformAuthenticatorAvailable =", uvpaa);
+  } catch (error) {
+    log("register: platform-authenticator check threw", error);
+  }
   const startedAt = Date.now();
   let credential: Credential | null;
   try {
+    log("register: calling navigator.credentials.create()");
     credential = (await ceremonyWithTimeout(options, (signal) =>
       navigator.credentials.create({
         publicKey: {
@@ -176,7 +211,12 @@ export async function registerPasskey(label: string): Promise<void> {
         },
       }),
     )) as Credential | null;
+    log("register: create() resolved", { id: credential?.id?.slice(0, 16) });
   } catch (error) {
+    log(
+      "register: create() threw",
+      error instanceof DOMException ? `${error.name}: ${error.message}` : error,
+    );
     if (isUserCancel(error, startedAt, options.timeout)) {
       throw new PasskeyCancelledError();
     }
@@ -185,6 +225,7 @@ export async function registerPasskey(label: string): Promise<void> {
   if (!credential) {
     throw new Error("The browser did not create a passkey.");
   }
+  log("register: verifying with server");
   const res = await fetch(
     `${apiUrl("/passkeys/register/verify")}?token=${encodeURIComponent(token)}&label=${encodeURIComponent(label)}`,
     {
@@ -197,6 +238,7 @@ export async function registerPasskey(label: string): Promise<void> {
   if (!res.ok) {
     throw new Error("The server rejected the new passkey.");
   }
+  log("register: verify ok");
 }
 
 /** Distinguishes a deliberate ceremony cancel from other failures. */
@@ -214,10 +256,17 @@ export type PasskeyLoginResult = "ok" | "cancelled" | "timeout" | "failed";
  * on "ok"; "cancelled" is a deliberate dismiss and needs no message.
  */
 export async function loginWithPasskey(): Promise<PasskeyLoginResult> {
+  log("login: requesting options");
   const { token, options } = await postOptions("/passkeys/login/options");
+  log("login: options received", {
+    rpId: options.rpId,
+    timeout: options.timeout,
+    hints: (options as { hints?: string[] }).hints,
+  });
   const startedAt = Date.now();
   let credential: Credential | null;
   try {
+    log("login: calling navigator.credentials.get()");
     credential = (await ceremonyWithTimeout(options, (signal) =>
       navigator.credentials.get({
         publicKey: {
@@ -226,12 +275,18 @@ export async function loginWithPasskey(): Promise<PasskeyLoginResult> {
         },
       }),
     )) as Credential | null;
+    log("login: get() resolved", { id: credential?.id?.slice(0, 16) });
   } catch (error) {
+    log(
+      "login: get() threw",
+      error instanceof DOMException ? `${error.name}: ${error.message}` : error,
+    );
     return isUserCancel(error, startedAt, options.timeout) ? "cancelled" : "timeout";
   }
   if (!credential) {
     return "failed";
   }
+  log("login: verifying with server");
   const res = await fetch(
     `${apiUrl("/passkeys/login/verify")}?token=${encodeURIComponent(token)}`,
     {
