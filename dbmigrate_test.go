@@ -182,3 +182,41 @@ func splitCSV(s string) []string {
 	}
 	return out
 }
+
+func TestMigrateWebAuthnCredentials(t *testing.T) {
+	db := openTestDB(t)
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	hasTable(t, db, "webauthn_credentials")
+
+	var cols string
+	row := db.QueryRow(`SELECT group_concat(name, ',') FROM pragma_table_info('webauthn_credentials')`)
+	if err := row.Scan(&cols); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"id", "user_id", "credential_id", "public_key", "attestation_type",
+		"transports", "backup_eligible", "backup_state", "label",
+		"sign_count", "created_at", "updated_at", "last_used_at",
+	} {
+		found := false
+		for _, c := range splitCSV(cols) {
+			if c == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("webauthn_credentials columns = %q, missing %q", cols, want)
+		}
+	}
+
+	// credential_id must be unique; user_id must be indexed.
+	var idx int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND tbl_name='webauthn_credentials' AND sql LIKE '%UNIQUE%'`).Scan(&idx); err != nil || idx == 0 {
+		t.Errorf("expected a UNIQUE index on webauthn_credentials, got %d (err %v)", idx, err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='webauthn_credentials_user_id_idx'`).Scan(&idx); err != nil || idx != 1 {
+		t.Errorf("webauthn_credentials_user_id_idx missing (err %v)", err)
+	}
+}

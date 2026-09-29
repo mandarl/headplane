@@ -80,3 +80,71 @@ func nullable(s *string) sql.NullString {
 	}
 	return sql.NullString{String: *s, Valid: true}
 }
+
+// FindOrCreatePasskeyUser returns the users row that backs passkey
+// registration for an API-key principal. API-key sessions have no users
+// row, so one is derived from the key itself (stable per key via its
+// hash). API-key holders bypass every role check, so the derived user is
+// created as 'owner' to preserve capability parity with the API-key
+// session — a 'member' would silently lose access the key grants.
+func (s *Service) FindOrCreatePasskeyUser(apiKey, displayName string) (string, error) {
+	subject := "passkey:api-key:" + HashAPIKey(apiKey)
+	now := time.Now().Unix()
+	var id string
+	err := s.db.QueryRow(`SELECT id FROM users WHERE sub = ? LIMIT 1`, subject).Scan(&id)
+	switch {
+	case err == nil:
+		_, err = s.db.Exec(`UPDATE users SET name = ?, last_login_at = ?, updated_at = ? WHERE id = ?`,
+			nullable(orNilStr(displayName)), now, now, id)
+		if err != nil {
+			return "", fmt.Errorf("auth: cannot update passkey user: %w", err)
+		}
+		return id, nil
+	case err != sql.ErrNoRows:
+		return "", fmt.Errorf("auth: cannot look up passkey user: %w", err)
+	}
+
+	id = NewULID()
+	_, err = s.db.Exec(`INSERT INTO users (id, sub, name, role, caps, created_at, updated_at, last_login_at)
+		VALUES (?, ?, ?, 'owner', ?, ?, ?, ?)`,
+		id, subject, nullable(orNilStr(displayName)), int64(CapsForRole("owner")), now, now, now)
+	if err != nil {
+		return "", fmt.Errorf("auth: cannot create passkey user: %w", err)
+	}
+	return id, nil
+}
+
+// RecordLogin refreshes last_login_at for the user, mirroring what
+// FindOrCreateUser does on OIDC login.
+func (s *Service) RecordLogin(userID string) error {
+	now := time.Now().Unix()
+	_, err := s.db.Exec(`UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?`, now, now, userID)
+	if err != nil {
+		return fmt.Errorf("auth: cannot record login: %w", err)
+	}
+	return nil
+}
+
+// UserProfile returns the display profile fields for a users row.
+func (s *Service) UserProfile(userID string) (name string, email *string, err error) {
+	var nameNS, emailNS sql.NullString
+	err = s.db.QueryRow(`SELECT name, email FROM users WHERE id = ?`, userID).Scan(&nameNS, &emailNS)
+	if err != nil {
+		return "", nil, fmt.Errorf("auth: cannot load user profile: %w", err)
+	}
+	if nameNS.Valid {
+		name = nameNS.String
+	}
+	if emailNS.Valid {
+		e := emailNS.String
+		email = &e
+	}
+	return name, email, nil
+}
+
+func orNilStr(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}

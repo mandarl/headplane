@@ -269,3 +269,19 @@ integration:
 #   # of custom hinting.
 #   extra_params:
 #     prompt: "select_account" # Example: force account selection on Google
+
+# Passkey (WebAuthn) login. Passkeys are registered per user under
+# Settings → Passkeys and issue the same `_hp_auth` session cookie as the
+# other login methods, so API-key/password login keeps working as a fallback.
+#
+# The section is optional. When present it is enabled by default; set
+# `enabled: false` to turn passkey login off entirely.
+# webauthn:
+#   # Set to false to disable passkey login and registration.
+#   enabled: true
+#
+#   # Optional. Override the relying-party ID. By default the RP ID is the
+#   # request hostname (what the browser shows in the address bar). Set this
+#   # when Headplane sits behind a reverse proxy and the public hostname
+#   # differs from the Host header the Go server sees, e.g.:
+#   rp_id: "headplane.example.com"

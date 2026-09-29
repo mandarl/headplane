@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { blob, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { HostInfo } from "~/types";
 
@@ -51,7 +51,7 @@ export type ServiceDescriptionOverrideInsert = typeof serviceDescriptionOverride
 
 export const authSessions = sqliteTable("auth_sessions", {
   id: text("id").primaryKey(),
-  kind: text("kind").notNull(), // 'oidc' | 'api_key'
+  kind: text("kind").notNull(), // 'oidc' | 'api_key' | 'passkey'
   user_id: text("user_id"),
   api_key_hash: text("api_key_hash"),
   api_key_display: text("api_key_display"),
@@ -62,3 +62,28 @@ export const authSessions = sqliteTable("auth_sessions", {
 
 export type AuthSessionRecord = typeof authSessions.$inferSelect;
 export type AuthSessionInsert = typeof authSessions.$inferInsert;
+
+// WebAuthn credentials registered for passkey login. Each row belongs to a
+// headplane user (users.id); the credential itself is identified by the
+// base64url credential ID. `transports` is a JSON array of
+// AuthenticatorTransport values (e.g. ["hybrid","internal"]).
+export const webauthnCredentials = sqliteTable("webauthn_credentials", {
+  id: text("id").primaryKey(),
+  user_id: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  credential_id: text("credential_id").notNull().unique(),
+  public_key: blob("public_key", { mode: "buffer" }).notNull(),
+  attestation_type: text("attestation_type").notNull().default("none"),
+  transports: text("transports"),
+  backup_eligible: integer("backup_eligible", { mode: "boolean" }).notNull().default(false),
+  backup_state: integer("backup_state", { mode: "boolean" }).notNull().default(false),
+  label: text("label"),
+  sign_count: integer("sign_count").notNull().default(0),
+  created_at: integer("created_at", { mode: "timestamp" }).$default(() => new Date()),
+  updated_at: integer("updated_at", { mode: "timestamp" }).$default(() => new Date()),
+  last_used_at: integer("last_used_at", { mode: "timestamp" }),
+});
+
+export type WebauthnCredentialRecord = typeof webauthnCredentials.$inferSelect;
+export type WebauthnCredentialInsert = typeof webauthnCredentials.$inferInsert;

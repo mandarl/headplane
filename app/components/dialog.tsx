@@ -49,10 +49,16 @@ export interface DialogPanelProps {
   onSubmit?: React.FormEventHandler<HTMLFormElement>;
   method?: HTMLFormMethod;
   isDisabled?: boolean;
+  /**
+   * Hide the default Cancel/Confirm footer row. Use for dialogs that
+   * render their own action buttons (e.g. async flows that don't submit
+   * the panel form).
+   */
+  hideFooter?: boolean;
 }
 
 function Panel(props: DialogPanelProps) {
-  const { children, onSubmit, isDisabled, variant, method = "POST" } = props;
+  const { children, onSubmit, isDisabled, variant, hideFooter, method = "POST" } = props;
   const closeRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -85,23 +91,25 @@ function Panel(props: DialogPanelProps) {
         <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
           {children}
         </div>
-        <div className="mt-5 flex shrink-0 justify-end gap-3">
-          {variant === "unactionable" ? (
-            <AlertDialog.Close render={<Button>Close</Button>} />
-          ) : (
-            <>
-              <AlertDialog.Close render={<Button>Cancel</Button>} />
-              <AlertDialog.Close ref={closeRef} className="hidden" aria-hidden tabIndex={-1} />
-              <Button
-                disabled={isDisabled}
-                type="submit"
-                variant={variant === "destructive" ? "danger" : "heavy"}
-              >
-                Confirm
-              </Button>
-            </>
-          )}
-        </div>
+        {hideFooter ? undefined : (
+          <div className="mt-5 flex shrink-0 justify-end gap-3">
+            {variant === "unactionable" ? (
+              <AlertDialog.Close render={<Button>Close</Button>} />
+            ) : (
+              <>
+                <AlertDialog.Close render={<Button>Cancel</Button>} />
+                <AlertDialog.Close ref={closeRef} className="hidden" aria-hidden tabIndex={-1} />
+                <Button
+                  disabled={isDisabled}
+                  type="submit"
+                  variant={variant === "destructive" ? "danger" : "heavy"}
+                >
+                  Confirm
+                </Button>
+              </>
+            )}
+          </div>
+        )}
       </Form>
     </AlertDialog.Popup>
   );

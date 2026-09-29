@@ -20,6 +20,7 @@ import (
 	"github.com/tale/headplane/internal/hscfg"
 	"github.com/tale/headplane/internal/live"
 	"github.com/tale/headplane/internal/oidc"
+	"github.com/tale/headplane/internal/passkey"
 	"github.com/tale/headplane/internal/serverconfig"
 )
 
@@ -71,6 +72,10 @@ type Server struct {
 	// oidcDisabledReason carries the TS "OIDC is unavailable: <reason>".
 	oidcSvc            *oidc.Service
 	oidcDisabledReason string
+
+	// Passkeys (WebAuthn). passkeySvc is nil when webauthn.enabled is
+	// false, in which case the passkey endpoints answer 404.
+	passkeySvc *passkey.Service
 
 	// Phase 4: Headscale. hsCfg is the read-only Headscale config (nil-safe
 	// via its methods); liveStore is the versioned nodes/users cache feeding

@@ -60,6 +60,20 @@ func (s *Server) serveAPIv1(w http.ResponseWriter, r *http.Request, rest string)
 		s.handleAgent(w, r)
 	case rest == "/settings/agent/sync" && method == http.MethodPost:
 		s.handleAgentSync(w, r)
+	case rest == "/passkeys" && method == http.MethodGet:
+		s.handlePasskeysList(w, r)
+	case rest == "/passkeys" && method == http.MethodPatch:
+		s.handlePasskeyUpdate(w, r)
+	case rest == "/passkeys" && method == http.MethodDelete:
+		s.handlePasskeyDelete(w, r)
+	case rest == "/passkeys/register/options" && method == http.MethodPost:
+		s.handlePasskeyRegisterOptions(w, r)
+	case rest == "/passkeys/register/verify" && method == http.MethodPost:
+		s.handlePasskeyRegisterVerify(w, r)
+	case rest == "/passkeys/login/options" && method == http.MethodPost:
+		s.handlePasskeyLoginOptions(w, r)
+	case rest == "/passkeys/login/verify" && method == http.MethodPost:
+		s.handlePasskeyLoginVerify(w, r)
 	case strings.HasPrefix(rest, "/ssh/") && method == http.MethodGet:
 		s.handleTerminal(w, r, "ssh", strings.TrimPrefix(rest, "/ssh/"))
 	case strings.HasPrefix(rest, "/rdp/") && method == http.MethodGet:
@@ -85,7 +99,9 @@ func knownAPIPath(rest string) bool {
 		"/users", "/users/actions", "/acls", "/dns", "/dns/actions", "/settings",
 		"/settings/auth-keys", "/settings/auth-keys/actions",
 		"/settings/restrictions", "/settings/restrictions/actions",
-		"/settings/agent", "/settings/agent/sync":
+		"/settings/agent", "/settings/agent/sync",
+		"/passkeys", "/passkeys/register/options", "/passkeys/register/verify",
+		"/passkeys/login/options", "/passkeys/login/verify":
 		return true
 	}
 	return strings.HasPrefix(rest, "/machines/") ||

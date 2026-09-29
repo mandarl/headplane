@@ -170,7 +170,7 @@ func (s *Service) Require(r *http.Request) (*Principal, error) {
 	}
 
 	p := &Principal{
-		Kind:      "oidc",
+		Kind:      sess.kind,
 		SessionID: sess.id,
 		UserID:    user.id,
 		Subject:   user.sub,
@@ -259,6 +259,28 @@ func (s *Service) CreateOidcSession(userID string, profile CookieProfile, idToke
 	}
 	_, err := s.db.Exec(`INSERT INTO auth_sessions (id, kind, user_id, oidc_id_token, expires_at, created_at)
 		VALUES (?, 'oidc', ?, ?, ?, ?)`, sid, userID, idTok, expiresAt, now.Unix())
+	if err != nil {
+		return "", err
+	}
+	value, err := SignCookie(s.secret, CookiePayload{SID: sid, Profile: &profile})
+	if err != nil {
+		return "", err
+	}
+	opts := s.cookieOpts
+	opts.MaxAge = int(maxAge.Seconds())
+	return SerializeSetCookie(opts, value, nil), nil
+}
+
+// CreatePasskeySession inserts the session row and returns the Set-Cookie
+// header value. It mirrors CreateOidcSession with kind 'passkey': the
+// session belongs to a users row, exactly like an OIDC session, but carries
+// no IdP token.
+func (s *Service) CreatePasskeySession(userID string, profile CookieProfile, maxAge time.Duration) (string, error) {
+	sid := NewULID()
+	now := time.Now()
+	expiresAt := now.Add(maxAge).Unix()
+	_, err := s.db.Exec(`INSERT INTO auth_sessions (id, kind, user_id, expires_at, created_at)
+		VALUES (?, 'passkey', ?, ?, ?)`, sid, userID, expiresAt, now.Unix())
 	if err != nil {
 		return "", err
 	}

@@ -9,13 +9,16 @@ import type { Route } from "./+types/overview";
 type SettingsOverviewData = {
   config: boolean;
   isOidcEnabled: boolean;
+  passkeyEnabled: boolean;
 };
 
 export async function clientLoader(): Promise<SettingsOverviewData> {
   return apiGet<SettingsOverviewData>("/settings");
 }
 
-export default function Page({ loaderData: { config, isOidcEnabled } }: Route.ComponentProps) {
+export default function Page({
+  loaderData: { config, isOidcEnabled, passkeyEnabled },
+}: Route.ComponentProps) {
   return (
     <div className="flex max-w-(--breakpoint-lg) flex-col gap-8">
       <div className="flex w-full flex-col sm:w-2/3">
@@ -42,6 +45,24 @@ export default function Page({ loaderData: { config, isOidcEnabled } }: Route.Co
           <ArrowRight className="ml-2 h-5 w-5" />
         </div>
       </Link>
+      {passkeyEnabled ? (
+        <>
+          <div className="flex w-full flex-col sm:w-2/3">
+            <h1 className="mb-4 text-2xl font-medium">Passkeys</h1>
+            <p>
+              Passkeys let you sign in without typing your API key. They can live in a synced
+              provider like LastPass so they work on all your computers, and on a computer without
+              your provider you can sign in by scanning the QR code with your phone.
+            </p>
+          </div>
+          <Link to="/settings/passkeys">
+            <div className="flex items-center text-lg font-medium">
+              Manage Passkeys
+              <ArrowRight className="ml-2 h-5 w-5" />
+            </div>
+          </Link>
+        </>
+      ) : undefined}
       <div className="flex w-full flex-col sm:w-2/3">
         <h1 className="mb-4 text-2xl font-medium">Headplane Agent</h1>
         <p>

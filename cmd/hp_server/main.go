@@ -31,6 +31,7 @@ import (
 	"github.com/tale/headplane/internal/hscfg"
 	"github.com/tale/headplane/internal/integration"
 	"github.com/tale/headplane/internal/live"
+	"github.com/tale/headplane/internal/passkey"
 	"github.com/tale/headplane/internal/rdpgw"
 	"github.com/tale/headplane/internal/serverconfig"
 )
@@ -110,6 +111,20 @@ func main() {
 	authSvc.Start()
 	srv.authSvc = authSvc
 
+	// Passkey (WebAuthn) login. Enabled by default; set webauthn.enabled to
+	// false to disable. webauthn.rp_id pins the relying-party ID for
+	// reverse-proxy deployments where the public hostname differs.
+	if cfg.WebAuthn.IsEnabled() {
+		var rpIDOverride string
+		if cfg.WebAuthn != nil {
+			rpIDOverride = cfg.WebAuthn.RPID
+		}
+		srv.passkeySvc = passkey.NewService(authSvc.DB(), rpIDOverride, logger)
+		logger.Info("passkey login enabled", "rp_id_override", rpIDOverride)
+	} else {
+		logger.Info("passkey login disabled", "reason", "webauthn section absent or enabled=false")
+	}
+
 	// Phase 3: OIDC. newOidcService mirrors buildOidc in
 	// app/server/context.ts, including the three disabled reasons; the
 	// routes answer 501 "OIDC is unavailable: <reason>" when disabled.
@@ -183,6 +198,9 @@ func main() {
 	srv.onShutdown = func() {
 		close(hsDone)
 		srv.liveStore.Dispose()
+		if srv.passkeySvc != nil {
+			srv.passkeySvc.Stop()
+		}
 		// Phase 5: stop the agent sync loop and child process.
 		if mgr, _ := srv.agentManager(); mgr != nil {
 			mgr.Dispose()

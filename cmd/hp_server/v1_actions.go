@@ -229,7 +229,7 @@ func (s *Server) handleMachineActions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			var updatedBy *string
-			if p.Kind == "oidc" {
+			if p.Kind == "oidc" || p.Kind == "passkey" {
 				name := p.ProfileName
 				if name == "" && p.ProfileUsername != nil {
 					name = *p.ProfileUsername

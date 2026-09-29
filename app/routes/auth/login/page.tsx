@@ -1,5 +1,5 @@
 import { AlertCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Form,
   Link as RouterLink,
@@ -13,6 +13,7 @@ import Card from "~/components/card";
 import Code from "~/components/code";
 import Input from "~/components/input";
 import Link from "~/components/link";
+import { isWebAuthnSupported, loginWithPasskey } from "~/lib/passkey";
 import type { OidcErrorCode } from "~/server/oidc/provider";
 import { useLiveData } from "~/utils/live-data";
 
@@ -31,6 +32,7 @@ interface LoginConfig {
   oidcErrorCodes: OidcErrorCode[];
   cookieSecure: boolean;
   disableApiKeyLogin: boolean;
+  passkeyEnabled: boolean;
 }
 
 export async function clientLoader({ request }: Route.ClientLoaderArgs) {
@@ -48,6 +50,7 @@ export async function clientLoader({ request }: Route.ClientLoaderArgs) {
     oidcErrorCodes: [],
     cookieSecure: false,
     disableApiKeyLogin: false,
+    passkeyEnabled: false,
   };
 
   const qp = new URL(request.url).searchParams;
@@ -63,6 +66,7 @@ export async function clientLoader({ request }: Route.ClientLoaderArgs) {
     isCookieSecureEnabled: login.cookieSecure,
     isOidcConnectorEnabled: login.oidcEnabled,
     oidcErrorCodes: login.oidcErrorCodes,
+    passkeyEnabled: login.passkeyEnabled && isWebAuthnSupported(),
     urlState,
   };
 }
@@ -92,10 +96,15 @@ export async function clientAction({ request }: Route.ClientActionArgs) {
 
 export default function Page({ loaderData, actionData }: Route.ComponentProps) {
   const { isCookieSecureEnabled, isOidcConnectorEnabled, oidcErrorCodes, urlState } = loaderData;
+  const { passkeyEnabled } = loaderData;
 
   const [showCookieWarning, setShowCookieWarning] = useState(false);
   const [params] = useSearchParams();
   const { pause } = useLiveData();
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+  const [cancelCount, setCancelCount] = useState(0);
+  const passkeyButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     // This page does NOT need stale while revalidate logic
@@ -183,6 +192,71 @@ export default function Page({ loaderData, actionData }: Route.ComponentProps) {
               Sign In
             </Button>
           </Form>
+          {passkeyEnabled ? (
+            <>
+              <div className="my-3 flex items-center gap-3 text-xs text-mist-400">
+                <span className="h-px flex-1 bg-mist-200 dark:bg-mist-700" />
+                or
+                <span className="h-px flex-1 bg-mist-200 dark:bg-mist-700" />
+              </div>
+              <Button
+                className="w-full"
+                disabled={passkeyBusy}
+                onClick={async () => {
+                  setPasskeyBusy(true);
+                  setPasskeyError(null);
+                  try {
+                    const result = await loginWithPasskey();
+                    if (result === "ok") {
+                      setCancelCount(0);
+                      window.location.assign(`${__PREFIX__}/machines`);
+                    } else if (result === "timeout") {
+                      setCancelCount(0);
+                      setPasskeyError("The passkey request timed out. Try again.");
+                    } else if (result === "failed") {
+                      setCancelCount(0);
+                      setPasskeyError(
+                        "Couldn't sign in with your passkey. Try again, or sign in another way.",
+                      );
+                    } else {
+                      // Deliberate dismiss: stay quiet the first time, but a
+                      // repeat suggests the device found no passkey at all.
+                      const next = cancelCount + 1;
+                      setCancelCount(next);
+                      if (next >= 2) {
+                        setPasskeyError(
+                          "No passkey was used. If your device couldn't find one, sign in with your API key and register it under Settings → Passkeys first.",
+                        );
+                      }
+                    }
+                  } catch (error) {
+                    setCancelCount(0);
+                    setPasskeyError(
+                      error instanceof Error ? error.message : "Passkey sign-in failed.",
+                    );
+                  } finally {
+                    setPasskeyBusy(false);
+                    // The OS sheet steals focus; hand it back so keyboard
+                    // users don't lose their place.
+                    passkeyButtonRef.current?.focus();
+                  }
+                }}
+                ref={passkeyButtonRef}
+                variant="light"
+              >
+                {passkeyBusy ? "Waiting for passkey…" : "Sign in with passkey"}
+              </Button>
+              <Card.Text className="mt-2 text-xs text-mist-500">
+                Use Touch ID, Windows Hello, or your phone — register a passkey in Settings after
+                signing in.
+              </Card.Text>
+              {passkeyError ? (
+                <Card.Text className="mt-2 text-sm text-red-600 dark:text-red-300">
+                  {passkeyError}
+                </Card.Text>
+              ) : undefined}
+            </>
+          ) : undefined}
           {isOidcConnectorEnabled ? (
             <RouterLink to="/oidc/start" prefetch="none" reloadDocument>
               <Button className="mt-2 w-full" disabled={oidcErrorCodes.length > 0} variant="light">

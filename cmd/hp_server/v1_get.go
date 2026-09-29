@@ -21,7 +21,26 @@ func (s *Server) handleBoot(w http.ResponseWriter, r *http.Request) {
 	api, p, err := s.hsClientFor(r)
 	if err != nil {
 		if err == errNeedAuth {
-			writeError(w, http.StatusUnauthorized, "Authentication required.")
+			// The login page reads the `login` section without a
+			// session to decide which methods to offer (mirrors the
+			// old server loader).
+			oidcErrorCodes := []string{}
+			if s.oidcSvc == nil && s.oidcDisabledReason != "" {
+				if strings.Contains(strings.ToLower(s.oidcDisabledReason), "discovery") {
+					oidcErrorCodes = []string{"discovery_failed"}
+				}
+			}
+			disableAPIKeyLogin := s.cfg.OIDC != nil && s.cfg.OIDC.DisableAPIKeyLogin
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"error": "Authentication required.",
+				"login": map[string]any{
+					"oidcEnabled":        s.oidcSvc != nil,
+					"oidcErrorCodes":     oidcErrorCodes,
+					"cookieSecure":       s.cfg.Server.CookieSecure,
+					"disableApiKeyLogin": disableAPIKeyLogin,
+					"passkeyEnabled":     s.passkeyEnabled(),
+				},
+			})
 		} else {
 			writeError(w, http.StatusInternalServerError, "No Headscale API key is configured for this session.")
 		}
@@ -49,23 +68,25 @@ func (s *Server) handleBoot(w http.ResponseWriter, r *http.Request) {
 		"subject": p.Subject,
 		"name":    p.DisplayName,
 	}
-	if p.Kind == "oidc" {
-		users, err := api.ListUsers("", "", "")
-		if err != nil {
-			writeAPIError(w, err)
-			return
-		}
-		linked := false
-		for _, u := range users {
-			if hsapi.OIDCSubject(u) == p.Subject {
-				linked = true
-				break
-			}
-		}
-		if !linked {
-			if _, err := s.authSvc.UnlinkHeadscaleUser(p.UserID); err != nil {
+	if p.Kind == "oidc" || p.Kind == "passkey" {
+		if p.Kind == "oidc" {
+			users, err := api.ListUsers("", "", "")
+			if err != nil {
 				writeAPIError(w, err)
 				return
+			}
+			linked := false
+			for _, u := range users {
+				if hsapi.OIDCSubject(u) == p.Subject {
+					linked = true
+					break
+				}
+			}
+			if !linked {
+				if _, err := s.authSvc.UnlinkHeadscaleUser(p.UserID); err != nil {
+					writeAPIError(w, err)
+					return
+				}
 			}
 		}
 		user["email"] = p.ProfileEmail
@@ -73,6 +94,9 @@ func (s *Server) handleBoot(w http.ResponseWriter, r *http.Request) {
 		user["picture"] = p.ProfilePicture
 		user["headscaleUserId"] = p.HeadscaleUserID
 		user["role"] = string(p.Role)
+		if p.Kind == "passkey" {
+			user["name"] = p.ProfileName
+		}
 	} else {
 		user["name"] = p.DisplayName
 	}
@@ -634,8 +658,9 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"config":        s.hsCfg.Writable(),
-		"isOidcEnabled": isOidcEnabled,
+		"config":         s.hsCfg.Writable(),
+		"isOidcEnabled":  isOidcEnabled,
+		"passkeyEnabled": s.passkeyEnabled(),
 	})
 }
 

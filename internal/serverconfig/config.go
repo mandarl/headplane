@@ -133,6 +133,24 @@ func (g *RDPGatewayConfig) IsEnabled() bool {
 	return g != nil && (g.Enabled == nil || *g.Enabled)
 }
 
+// WebAuthnConfig mirrors the `webauthn` section. Enabled is a *bool because
+// the schema default is enabled=true when the section is present: nil means
+// "not specified" and validates to true, while an explicit
+// `enabled: false` disables passkey login/registration. RPID overrides the
+// relying-party ID derived from the request host; set it when headplane
+// sits behind a reverse proxy under a different public hostname.
+type WebAuthnConfig struct {
+	Enabled *bool  `yaml:"enabled"`
+	RPID    string `yaml:"rp_id"`
+}
+
+// IsEnabled reports whether the webauthn section enables passkeys. A nil
+// receiver or nil Enabled (e.g. a struct built without validate()) means
+// the schema default: enabled.
+func (w *WebAuthnConfig) IsEnabled() bool {
+	return w != nil && (w.Enabled == nil || *w.Enabled)
+}
+
 // Config is the fully-resolved headplane configuration.
 type Config struct {
 	Debug       bool               `yaml:"debug"`
@@ -141,6 +159,7 @@ type Config struct {
 	OIDC        *OIDCConfig        `yaml:"oidc"`
 	Integration *IntegrationConfig `yaml:"integration"`
 	RDPGateway  *RDPGatewayConfig  `yaml:"rdp_gateway"`
+	WebAuthn    *WebAuthnConfig    `yaml:"webauthn"`
 }
 
 // defaults returns a Config with the schema defaults applied.
@@ -464,6 +483,22 @@ func validate(cfg *Config) error {
 		}
 		if _, err := url.ParseRequestURI(g.WebhookURL); err != nil {
 			return fmt.Errorf("config: rdp_gateway.webhook_url %q is not a valid URL", g.WebhookURL)
+		}
+	}
+
+	if cfg.WebAuthn != nil {
+		w := cfg.WebAuthn
+		if w.Enabled == nil {
+			// Schema default: the section being present means enabled.
+			t := true
+			w.Enabled = &t
+		}
+		if w.RPID != "" {
+			rp := strings.ToLower(w.RPID)
+			if strings.Contains(rp, "://") || strings.Contains(rp, "/") || strings.Contains(rp, ":") {
+				return fmt.Errorf("config: webauthn.rp_id %q must be a bare hostname, not a URL", w.RPID)
+			}
+			w.RPID = rp
 		}
 	}
 

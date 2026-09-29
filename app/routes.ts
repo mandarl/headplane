@@ -65,6 +65,7 @@ export default [
     ...prefix("/settings", [
       index("routes/settings/overview.tsx"),
       route("/auth-keys", "routes/settings/auth-keys/overview.tsx"),
+      route("/passkeys", "routes/settings/passkeys.tsx"),
       route("/restrictions", "routes/settings/restrictions/overview.tsx"),
       route("/agent", "routes/settings/agent.tsx"),
     ]),
