@@ -138,6 +138,27 @@ function isUserCancel(error: unknown, startedAt: number, timeoutMs?: number): bo
 }
 
 /**
+ * Run a WebAuthn ceremony call with a hard client-side deadline. A browser
+ * can leave navigator.credentials.create/get pending forever without ever
+ * showing its prompt (for example when an earlier ceremony got wedged);
+ * without this bound the UI would sit on its busy state indefinitely. The
+ * deadline tracks the server-advertised ceremony timeout.
+ */
+async function ceremonyWithTimeout<T>(
+  options: { timeout?: number },
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const timeoutMs = typeof options.timeout === "number" ? options.timeout : 120000;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs + 5000);
+  try {
+    return await run(ctrl.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Run a passkey registration ceremony. `label` names the new passkey.
  * Throws on failure with a human-readable message; a user-cancelled
  * ceremony throws PasskeyCancelledError so callers can stay quiet.
@@ -147,9 +168,14 @@ export async function registerPasskey(label: string): Promise<void> {
   const startedAt = Date.now();
   let credential: Credential | null;
   try {
-    credential = (await navigator.credentials.create({
-      publicKey: decodeOptions(options) as PublicKeyCredentialCreationOptions,
-    })) as Credential | null;
+    credential = (await ceremonyWithTimeout(options, (signal) =>
+      navigator.credentials.create({
+        publicKey: {
+          ...(decodeOptions(options) as PublicKeyCredentialCreationOptions),
+          signal,
+        },
+      }),
+    )) as Credential | null;
   } catch (error) {
     if (isUserCancel(error, startedAt, options.timeout)) {
       throw new PasskeyCancelledError();
@@ -192,9 +218,14 @@ export async function loginWithPasskey(): Promise<PasskeyLoginResult> {
   const startedAt = Date.now();
   let credential: Credential | null;
   try {
-    credential = (await navigator.credentials.get({
-      publicKey: decodeOptions(options) as PublicKeyCredentialRequestOptions,
-    })) as Credential | null;
+    credential = (await ceremonyWithTimeout(options, (signal) =>
+      navigator.credentials.get({
+        publicKey: {
+          ...(decodeOptions(options) as PublicKeyCredentialRequestOptions),
+          signal,
+        },
+      }),
+    )) as Credential | null;
   } catch (error) {
     return isUserCancel(error, startedAt, options.timeout) ? "cancelled" : "timeout";
   }
