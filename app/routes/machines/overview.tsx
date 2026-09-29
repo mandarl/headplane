@@ -7,73 +7,54 @@ import Input from "~/components/input";
 import Link from "~/components/link";
 import PageError from "~/components/page-error";
 import Tooltip from "~/components/tooltip";
-import { nodesResource, usersResource } from "~/server/headscale/live-store";
-import { Capabilities } from "~/server/web/roles";
+import { apiAction, apiGet } from "~/lib/api";
+import type { Machine, User } from "~/types";
 import cn from "~/utils/cn";
-import { mapNodes, sortNodeTags, type PopulatedNode } from "~/utils/node-info";
+import { sortNodeTags, type PopulatedNode } from "~/utils/node-info";
 
 import type { Route } from "./+types/overview";
 import { MachineFilters } from "./components/machine-filters";
 import MachineRow from "./components/machine-row";
 import NewMachine from "./dialogs/new";
 import { useMachineFilterParams } from "./hooks/use-machine-filter-params";
-import { machineAction } from "./machine-actions";
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  const principal = await context.auth.require(request);
+type MachinesOverviewData = {
+  agent: {
+    syncedAt: string | null;
+    nodeCount: number;
+    nodeKey?: string;
+  } | null;
+  headscaleUserId: string | null;
+  magic: string | null;
+  nodes: Machine[];
+  populatedNodes: PopulatedNode[];
+  preAuth: boolean;
+  publicServer: string | null;
+  rdpGatewayEnabled: boolean;
+  server: string;
+  supportsNodeOwnerChange: boolean;
+  users: User[];
+  writable: boolean;
+};
 
-  if (!context.auth.can(principal, Capabilities.read_machines)) {
-    throw new Error(
-      "You do not have permission to view this page. Please contact your administrator.",
-    );
-  }
-
-  const writablePermission = context.auth.can(principal, Capabilities.write_machines);
-
-  const { api } = await context.apiForRequest(request);
-  const [nodesSnap, usersSnap] = await Promise.all([
-    context.hsLive.get(nodesResource, api),
-    context.hsLive.get(usersResource, api),
-  ]);
-  const nodes = nodesSnap.data;
-  const users = usersSnap.data;
-
-  let magic: string | undefined;
-  if (context.hs.readable()) {
-    if (context.hs.c?.dns.magic_dns) {
-      magic = context.hs.c.dns.base_domain;
-    }
-  }
-
-  const agents = context.agents.state === "enabled" ? context.agents.value : undefined;
-  const stats = await agents?.lookup(nodes.map((node) => node.nodeKey));
-  const populatedNodes = mapNodes(nodes, stats);
-  const supportsNodeOwnerChange = !context.headscale.capabilities.nodeOwnerIsImmutable;
-  const agentSync = agents?.lastSync();
-
+export async function clientLoader() {
+  const data = await apiGet<MachinesOverviewData>("/machines");
+  // JSON has no `undefined`: the wire contract uses `null` where the old
+  // server loader returned `undefined` (agent, headscaleUserId, magic,
+  // publicServer). Convert back so the unchanged components below behave
+  // exactly as before.
   return {
-    agent: agentSync
-      ? {
-          syncedAt: agentSync.syncedAt?.toISOString() ?? null,
-          nodeCount: agentSync.nodeCount,
-          nodeKey: agents?.agentNodeKey(),
-        }
-      : undefined,
-    headscaleUserId: principal.kind === "oidc" ? principal.user.headscaleUserId : undefined,
-    magic,
-    nodes,
-    populatedNodes,
-    preAuth: context.auth.can(principal, Capabilities.generate_authkeys),
-    publicServer: context.config.headscale.public_url,
-    rdpGatewayEnabled: context.rdpGateway.state === "enabled",
-    server: context.config.headscale.url,
-    supportsNodeOwnerChange: supportsNodeOwnerChange,
-    users,
-    writable: writablePermission,
+    ...data,
+    agent: data.agent ?? undefined,
+    headscaleUserId: data.headscaleUserId ?? undefined,
+    magic: data.magic ?? undefined,
+    publicServer: data.publicServer ?? undefined,
   };
 }
 
-export const action = machineAction;
+export async function clientAction({ request }: Route.ClientActionArgs) {
+  return apiAction("/machines/actions", await request.formData());
+}
 
 type SortField = "name" | "ip" | "version" | "lastSeen";
 

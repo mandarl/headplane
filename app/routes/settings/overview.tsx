@@ -2,15 +2,17 @@ import { ArrowRight } from "lucide-react";
 
 import Link from "~/components/link";
 import PageError from "~/components/page-error";
+import { apiGet } from "~/lib/api";
 
 import type { Route } from "./+types/overview";
 
-export async function loader({ context }: Route.LoaderArgs) {
-  return {
-    config: context.hs.writable(),
-    isOidcEnabled:
-      context.oidc.state === "enabled" && context.oidc.value.status().state === "ready",
-  };
+type SettingsOverviewData = {
+  config: boolean;
+  isOidcEnabled: boolean;
+};
+
+export async function clientLoader(): Promise<SettingsOverviewData> {
+  return apiGet<SettingsOverviewData>("/settings");
 }
 
 export default function Page({ loaderData: { config, isOidcEnabled } }: Route.ComponentProps) {

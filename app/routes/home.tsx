@@ -10,89 +10,29 @@ import Card from "~/components/card";
 import CodeBlock from "~/components/code-block";
 import Link from "~/components/link";
 import LinkAccount from "~/layout/link-account";
-import { usersResource } from "~/server/headscale/live-store";
-import { Capabilities } from "~/server/web/roles";
+import { apiAction, apiGet } from "~/lib/api";
 import cn from "~/utils/cn";
-import { getUserDisplayName } from "~/utils/user";
 
 import type { Route } from "./+types/home";
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  const principal = await context.auth.require(request);
+type HomeData =
+  | { status: "needs_link"; headscaleUsers: { id: string; name: string }[] }
+  | { status: "no_access"; linkedUserName?: string; unlinked: boolean };
 
-  // If the OIDC user has no linked Headscale user, check for
-  // Unclaimed users they can pick from before anything else.
-  let unlinked = false;
-  if (
-    context.oidc.state === "enabled" &&
-    principal.kind === "oidc" &&
-    !principal.user.headscaleUserId
-  ) {
-    const { api } = await context.apiForRequest(request);
-
-    let headscaleUsers: { id: string; name: string }[] = [];
-    try {
-      const [usersSnap, claimed] = await Promise.all([
-        context.hsLive.get(usersResource, api),
-        context.auth.claimedHeadscaleUserIds(),
-      ]);
-
-      const apiUsers = usersSnap.data;
-      headscaleUsers = apiUsers
-        .filter((u) => !claimed.has(u.id))
-        .map((u) => ({ id: u.id, name: getUserDisplayName(u) }));
-    } catch {
-      // API unavailable, skip the link picker
-    }
-
-    if (headscaleUsers.length > 0) {
-      return { headscaleUsers, status: "needs_link" as const };
-    }
-
-    // No unclaimed users, fall through to no-access page.
-    // Only warn if Headscale isn't using OIDC — if it is, the user
-    // Just needs to connect a device and Headscale will auto-create
-    // Their account, at which point auto-link will pick it up.
-    if (!context.hs.c?.oidc) {
-      unlinked = true;
-    }
+export async function clientLoader(): Promise<HomeData> {
+  const data = await apiGet<HomeData | { redirect: string }>("/home");
+  // The old server loader issued `redirect("/machines")` for users with
+  // UI access; the v1 API signals that as a `{ redirect }` body instead.
+  if ("redirect" in data) {
+    throw redirect(data.redirect);
   }
-
-  if (context.auth.can(principal, Capabilities.ui_access)) {
-    return redirect("/machines");
-  }
-
-  // No UI access — show the download/connect page
-  const { api } = await context.apiForRequest(request);
-
-  let linkedUserName: string | undefined;
-  if (principal.kind === "oidc" && principal.user.headscaleUserId) {
-    try {
-      const usersSnap = await context.hsLive.get(usersResource, api);
-      const hsUser = usersSnap.data.find((u) => u.id === principal.user.headscaleUserId);
-      linkedUserName = hsUser?.name;
-    } catch {
-      // API unavailable, skip linked user resolution
-    }
-  }
-
-  return { linkedUserName, status: "no_access" as const, unlinked };
+  return data;
 }
 
-export async function action({ request, context }: Route.ActionArgs) {
-  const principal = await context.auth.require(request);
-  if (principal.kind !== "oidc") {
-    return redirect("/");
-  }
-
-  const formData = await request.formData();
-  const headscaleUserId = formData.get("headscale_user_id")?.toString();
-
-  if (headscaleUserId) {
-    await context.auth.linkHeadscaleUser(principal.user.id, headscaleUserId);
-  }
-
-  return redirect("/");
+export async function clientAction({ request }: Route.ClientActionArgs) {
+  // `apiAction` throws the client redirect for the `{ redirect: "/" }`
+  // response the old server action produced.
+  return apiAction("/home/link", await request.formData());
 }
 
 const downloads = [

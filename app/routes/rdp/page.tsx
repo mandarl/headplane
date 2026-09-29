@@ -1,99 +1,52 @@
 import { WifiOff } from "lucide-react";
-import { data, isRouteErrorResponse, useLocation, type ShouldRevalidateFunction } from "react-router";
+import {
+  data,
+  isRouteErrorResponse,
+  redirect,
+  useLocation,
+  type ShouldRevalidateFunction,
+} from "react-router";
 
 import Button from "~/components/button";
 import Card from "~/components/card";
 import Code from "~/components/code";
-import { findHeadscaleUserBySubject } from "~/server/web/headscale-identity";
+import { apiFetch } from "~/lib/api";
 
 import type { Route } from "./+types/page";
 import { RDPConsole } from "./rdp.client";
 import RDPUserPrompt from "./user-prompt";
 
 const WASM_MODULE_URL = `${__PREFIX__}/hp_rdp.wasm`;
-const WASM_HELPER_URL = `${__PREFIX__}/wasm_exec.js`;
 
 export const shouldRevalidate: ShouldRevalidateFunction = ({ currentUrl, nextUrl }) => {
   return !currentUrl.searchParams.has("user") && nextUrl.searchParams.has("user");
 };
 
-export async function loader({ request, params, context }: Route.LoaderArgs) {
-  const origin = new URL(request.url).origin;
-  const assets = [WASM_HELPER_URL, WASM_MODULE_URL];
-  const missing: string[] = [];
-
-  for (const file of assets) {
-    const res = await fetch(`${origin}${file}`, { method: "HEAD" });
-    if (!res.ok) {
-      missing.push(file);
-    }
-  }
-
-  if (missing.length > 0) {
-    throw data({ title: "RDP Not Available", message: "hp_rdp.wasm is not available on this server." }, 405);
-  }
-
-  if (context.agents.state !== "enabled") {
-    throw data(
-      { title: "Agent Required", message: "The Headplane agent must be running to use Web RDP." },
-      400,
-    );
-  }
-
-  const { principal, api } = await context.apiForRequest(request);
-
-  const hostname = params.id;
-  const username = new URL(request.url).searchParams.get("user") || undefined;
-
-  const nodes = await api.nodes.list();
-  const node = nodes.find((n) => n.givenName === hostname);
-  if (!node) {
-    throw data({ title: "Node Not Found", message: `Node "${hostname}" was not found.` }, 404);
-  }
-
-  if (!node.online) {
-    return { hostname, username, offline: true, node: undefined };
-  }
-
-  if (!username) {
-    return { hostname, username: undefined, offline: false, node: undefined };
-  }
-
-  const users = await api.users.list();
-  const hsUser =
-    principal.kind === "api_key"
-      ? users[0]
-      : findHeadscaleUserBySubject(users, principal.user.subject, principal.profile.email);
-
-  if (!hsUser) {
-    throw data({ title: "User Not Linked", message: "Your user account is not linked to a Headscale user." }, 404);
-  }
-
-  const preAuthKey = await api.preAuthKeys.create({
-    user: hsUser.id,
-    ephemeral: true,
-    reusable: false,
-    expiration: new Date(Date.now() + 5 * 60 * 1000),
-    aclTags: null,
-  });
-
-  const controlURL = context.config.headscale.public_url ?? context.config.headscale.url;
-  return {
-    hostname,
-    username,
-    offline: false,
-    node: {
-      ipAddress: node.ipAddresses[0],
-      controlURL,
-      preAuthKey: preAuthKey.key,
-      ephemeralHostname: generateHostname(username),
-    },
+interface RDPLoaderData {
+  hostname: string;
+  username?: string;
+  offline: boolean;
+  node?: {
+    ipAddress: string;
+    controlURL: string;
+    preAuthKey: string;
+    ephemeralHostname: string;
   };
 }
 
-function generateHostname(username: string) {
-  const hex = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
-  return `rdp-${hex}-${username}`;
+// Backed by `GET /admin/api/v1/rdp/:id` on the Go server (WASM/agent
+// checks, node lookup, ephemeral pre-auth key mint).
+export async function clientLoader({ params, request }: Route.ClientLoaderArgs) {
+  const search = new URL(request.url).search;
+  const res = await apiFetch(`/rdp/${encodeURIComponent(params.id)}${search}`);
+  if (res.status === 401) {
+    throw redirect("/login");
+  }
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw data(body ?? { title: "RDP Not Available", message: "hp_rdp.wasm is not available on this server." }, res.status);
+  }
+  return body as RDPLoaderData;
 }
 
 export const links: Route.LinksFunction = () => [

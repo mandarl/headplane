@@ -1,0 +1,3 @@
+# Local benchmark inputs and outputs; only the harness is checked in.
+results/
+headplane.env

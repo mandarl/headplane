@@ -4,8 +4,19 @@ import Notice from "~/components/notice";
 import RadioGroup from "~/components/radio-group";
 import Text from "~/components/text";
 import Title from "~/components/title";
-import { Roles } from "~/server/web/roles";
 import type { Role } from "~/server/web/roles";
+
+// Client-side copy of the role names from ~/server/web/roles (not
+// browser-safe) — order matches the contract's capability table.
+const RoleNames = [
+  "owner",
+  "admin",
+  "network_admin",
+  "it_admin",
+  "auditor",
+  "viewer",
+  "member",
+] as const;
 
 interface ReassignProps {
   headplaneUserId: string;
@@ -40,19 +51,17 @@ export default function ReassignUser({
             <input name="action_id" type="hidden" value="reassign_user" />
             <input name="headplane_user_id" type="hidden" value={headplaneUserId} />
             <RadioGroup className="gap-4" defaultValue={role} label="Role" name="new_role">
-              {Object.keys(Roles)
-                .filter((r) => r !== "owner")
-                .map((r) => {
-                  const { name, desc } = mapRoleToName(r);
-                  return (
-                    <RadioGroup.Radio key={r} label={name} value={r}>
-                      <div className="block">
-                        <p className="font-bold">{name}</p>
-                        <p className="opacity-70">{desc}</p>
-                      </div>
-                    </RadioGroup.Radio>
-                  );
-                })}
+              {RoleNames.filter((r) => r !== "owner").map((r) => {
+                const { name, desc } = mapRoleToName(r);
+                return (
+                  <RadioGroup.Radio key={r} label={name} value={r}>
+                    <div className="block">
+                      <p className="font-bold">{name}</p>
+                      <p className="opacity-70">{desc}</p>
+                    </div>
+                  </RadioGroup.Radio>
+                );
+              })}
             </RadioGroup>
           </>
         )}

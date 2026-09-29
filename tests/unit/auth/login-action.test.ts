@@ -51,10 +51,13 @@ describe("Login action validation", () => {
       request,
       context: mockContext,
       params: {},
-    } as any)) as LoginResult;
+    } as any)) as Response;
 
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("Missing");
+    // Phase 0: failures are JSON Responses {success: false, message}
+    expect(result).toBeInstanceOf(Response);
+    const body = (await result.json()) as LoginResult;
+    expect(body.success).toBe(false);
+    expect(body.message).toContain("Missing");
   });
 
   test("returns error when api_key is empty string", async () => {
@@ -71,10 +74,13 @@ describe("Login action validation", () => {
       request,
       context: mockContext,
       params: {},
-    } as any)) as LoginResult;
+    } as any)) as Response;
 
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("empty");
+    // Phase 0: failures are JSON Responses {success: false, message}
+    expect(result).toBeInstanceOf(Response);
+    const body = (await result.json()) as LoginResult;
+    expect(body.success).toBe(false);
+    expect(body.message).toContain("empty");
   });
 
   test("returns error when api key not found in database", async () => {
@@ -97,10 +103,13 @@ describe("Login action validation", () => {
       request,
       context: mockContext,
       params: {},
-    } as any)) as LoginResult;
+    } as any)) as Response;
 
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("not found");
+    // Phase 0: failures are JSON Responses {success: false, message}
+    expect(result).toBeInstanceOf(Response);
+    const body = (await result.json()) as LoginResult;
+    expect(body.success).toBe(false);
+    expect(body.message).toContain("not found");
   });
 
   test("returns error when api key has expired", async () => {
@@ -124,10 +133,13 @@ describe("Login action validation", () => {
       request,
       context: mockContext,
       params: {},
-    } as any)) as LoginResult;
+    } as any)) as Response;
 
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("expired");
+    // Phase 0: failures are JSON Responses {success: false, message}
+    expect(result).toBeInstanceOf(Response);
+    const body = (await result.json()) as LoginResult;
+    expect(body.success).toBe(false);
+    expect(body.message).toContain("expired");
   });
 
   test("returns error when api key has no expiration field", async () => {
@@ -151,10 +163,13 @@ describe("Login action validation", () => {
       request,
       context: mockContext,
       params: {},
-    } as any)) as LoginResult;
+    } as any)) as Response;
 
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("malformed");
+    // Phase 0: failures are JSON Responses {success: false, message}
+    expect(result).toBeInstanceOf(Response);
+    const body = (await result.json()) as LoginResult;
+    expect(body.success).toBe(false);
+    expect(body.message).toContain("malformed");
   });
 
   test("handles asterisks in api key prefix from headscale 0.28+", async () => {

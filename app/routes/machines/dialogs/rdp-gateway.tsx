@@ -1,6 +1,5 @@
 import { Copy, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useFetcher } from "react-router";
 
 import Button from "~/components/button";
 import Code from "~/components/code";
@@ -67,25 +66,45 @@ function useCountdown(expiresAt: string | undefined): string | null {
 }
 
 export default function RDPGateway({ node, isOpen, setIsOpen }: RDPGatewayProps) {
-  const fetcher = useFetcher<GatewayResult>();
+  const [result, setResult] = useState<GatewayResult | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(false);
   const [timeoutMins, setTimeoutMins] = useState(180);
 
   const targetIp = node.ipAddresses[0] ?? "";
-  const isLoading = fetcher.state !== "idle";
 
-  const result = fetcher.data;
+  // Phase 0 (SPA): /api/rdp-gateway is a server-driven route outside the SPA
+  // route tree, so it is posted with plain fetch instead of useFetcher.
+  async function gatewayAction(actionId: "status" | "enable" | "disable") {
+    const form = new FormData();
+    form.set("action_id", actionId);
+    form.set("target_ip", targetIp);
+    form.set("hostname", node.givenName);
+    if (actionId === "enable") {
+      form.set("timeout_mins", String(timeoutMins));
+    }
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${__PREFIX__}/api/rdp-gateway`, {
+        method: "POST",
+        body: form,
+        credentials: "include",
+      });
+      setResult((await res.json().catch(() => null)) as GatewayResult | undefined);
+    } catch {
+      setResult({ success: false, error: "Gateway request failed" });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   const isActive = result?.success === true && result.host != null;
   const hasError = result?.success === false;
 
   // On open, auto-check gateway status so the dialog re-hydrates correctly
   // after a page reload or deployment that wiped in-memory fetcher state.
   useEffect(() => {
-    if (!isOpen || fetcher.state !== "idle" || fetcher.data !== undefined) return;
-    const form = new FormData();
-    form.set("action_id", "status");
-    form.set("target_ip", targetIp);
-    form.set("hostname", node.givenName);
-    fetcher.submit(form, { method: "POST", action: "/api/rdp-gateway" });
+    if (!isOpen || isLoading || result !== undefined) return;
+    void gatewayAction("status");
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Only non-null when isActive is true; JSX uses it inside the isActive guard.
@@ -93,20 +112,11 @@ export default function RDPGateway({ node, isOpen, setIsOpen }: RDPGatewayProps)
   const countdown = useCountdown(isActive ? result?.expires_at : undefined);
 
   function enable() {
-    const form = new FormData();
-    form.set("action_id", "enable");
-    form.set("target_ip", targetIp);
-    form.set("hostname", node.givenName);
-    form.set("timeout_mins", String(timeoutMins));
-    fetcher.submit(form, { method: "POST", action: "/api/rdp-gateway" });
+    void gatewayAction("enable");
   }
 
   function disable() {
-    const form = new FormData();
-    form.set("action_id", "disable");
-    form.set("target_ip", targetIp);
-    form.set("hostname", node.givenName);
-    fetcher.submit(form, { method: "POST", action: "/api/rdp-gateway" });
+    void gatewayAction("disable");
   }
 
   async function copyEndpoint() {

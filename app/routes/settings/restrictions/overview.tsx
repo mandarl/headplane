@@ -1,43 +1,30 @@
-import { data } from "react-router";
-
 import Link from "~/components/link";
 import Notice from "~/components/notice";
-import { Capabilities } from "~/server/web/roles";
+import { apiAction, apiGet } from "~/lib/api";
 
 import type { Route } from "./+types/overview";
-import { restrictionAction } from "./actions";
 import AddDomain from "./dialogs/add-domain";
 import AddGroup from "./dialogs/add-group";
 import AddUser from "./dialogs/add-user";
 import RestrictionTable from "./table";
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  const principal = await context.auth.require(request);
-  const check = context.auth.can(principal, Capabilities.read_users);
-  if (!check) {
-    throw data("You do not have permission to view IAM settings.", {
-      status: 403,
-    });
-  }
+type RestrictionsData = {
+  access: boolean;
+  settings: { domains: string[]; groups: string[]; users: string[] };
+  writable: boolean;
+};
 
-  if (!context.hs.c?.oidc) {
-    throw data("OIDC is not configured on this Headscale instance.", {
-      status: 501,
-    });
-  }
-
-  return {
-    access: context.auth.can(principal, Capabilities.configure_iam),
-    settings: {
-      domains: [...new Set(context.hs.c.oidc.allowed_domains)],
-      groups: [...new Set(context.hs.c.oidc.allowed_groups)],
-      users: [...new Set(context.hs.c.oidc.allowed_users)],
-    },
-    writable: context.hs.writable(),
-  };
+export async function clientLoader(): Promise<RestrictionsData> {
+  return apiGet<RestrictionsData>("/settings/restrictions");
 }
 
-export const action = restrictionAction;
+export async function clientAction({ request }: Route.ClientActionArgs) {
+  // All outcomes are plain JSON strings ("Domain added successfully.", etc.).
+  // `apiAction` returns JSON bodies even on non-2xx, so validation/permission
+  // error strings surface through `fetcher.data` exactly like the old server
+  // action's `data(...)` payloads.
+  return apiAction<string>("/settings/restrictions/actions", await request.formData());
+}
 
 export default function Page({ loaderData: { access, writable, settings } }: Route.ComponentProps) {
   const isDisabled = writable ? !access : true;
