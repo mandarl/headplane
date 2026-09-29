@@ -115,9 +115,24 @@ async function postOptions(path: string): Promise<{
           : null;
     throw new Error(serverMessage ?? `Passkey ceremony failed to start (HTTP ${res.status})`);
   }
-  return (await res.json()) as {
-    token: string;
-    options: PublicKeyCredentialCreationOptions | PublicKeyCredentialRequestOptions;
+  const data = (await res.json()) as { token: string; options: unknown };
+  // go-webauthn wraps the ceremony in a {"publicKey": ...} envelope
+  // (protocol.CredentialCreation / protocol.CredentialAssertion), but the
+  // WebAuthn API and everything below want the bare options object.
+  const raw = data.options as { publicKey?: unknown } | null | undefined;
+  const unwrapped =
+    raw != null &&
+    typeof raw === "object" &&
+    "publicKey" in raw &&
+    raw.publicKey != null &&
+    typeof raw.publicKey === "object"
+      ? raw.publicKey
+      : raw;
+  return {
+    token: data.token,
+    options: unwrapped as
+      | PublicKeyCredentialCreationOptions
+      | PublicKeyCredentialRequestOptions,
   };
 }
 
